@@ -1,0 +1,16 @@
+pandas
+numpy
+seaborn
+matplotlib
+scikit-learn
+xgboost
+nba_api
+torch
+joblib
+streamlit
+nbconvert
+plotly
+openai
+ipykernel
+mlflow
+tensorboard
