@@ -1,0 +1,26 @@
+
+version: '3.8'
+
+services:
+  datascience:
+    build: 
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/workspace
+    ports:
+      - "8888:8888"  # For Jupyter Notebook
+      - "6006:6006"  # For TensorBoard
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - ENV_NAME=data_science
+      - PYTHON_VER=3.10
+    command: ["conda", "run", "-n", "data_science", "jupyter", "lab", "--ip", "0.0.0.0", "--port", "8888", "--no-browser", "--allow-root"]
+
+    
