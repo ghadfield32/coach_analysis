@@ -14,3 +14,4 @@ openai
 ipykernel
 mlflow
 tensorboard
+gym
