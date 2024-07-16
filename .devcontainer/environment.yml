@@ -1,0 +1,36 @@
+name: data_science
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - jupyter
+  - jupyterlab
+  - ipykernel
+  - pytest
+  - black
+  - flake8
+  - mypy
+  - pip
+  - dash
+  - dash-bootstrap-components
+  - plotly
+  - opencv
+  - pillow
+  - tqdm
+  - statsmodels
+  - pip:
+    - nba_api
+    - requests
+    - streamlit
+    - xgboost
+    - lightgbm
+    - shap
+    - beautifulsoup4
+    - cpi
+    - lxml
