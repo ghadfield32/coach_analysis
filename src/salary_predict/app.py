@@ -27,6 +27,9 @@ def format_salary_df(df):
     return formatted_df[['Player', 'Position', 'Age', 'Salary', 'Predicted_Salary', 'Salary_Change']]
 
 def load_selected_model(model_name, use_inflated_data):
+    if model_name == 'Best_Model':
+        return find_best_model(use_inflated_data)
+    else:
         model, scaler, selected_features = load_model_and_scaler(model_name, use_inflated_data)
         df = load_data(use_inflated_data)
         df = feature_engineering(df)
