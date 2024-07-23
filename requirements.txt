@@ -1,4 +1,5 @@
-numpy==1.21.1
+numpy==1.24.4  # Compatible with Python 3.11
+pandas
 seaborn
 matplotlib
 scikit-learn==1.1.3
