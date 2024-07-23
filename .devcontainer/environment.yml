@@ -6,7 +6,7 @@ dependencies:
   - python=3.10
   - numpy
   - pandas
-  - scikit-learn
+  - scikit-learn=1.1.3
   - matplotlib
   - seaborn
   - jupyter
@@ -24,6 +24,7 @@ dependencies:
   - pillow
   - tqdm
   - statsmodels
+  - selenium
   - pip:
     - nba_api
     - requests
