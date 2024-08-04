@@ -61,15 +61,12 @@ def retrain_and_save_models(use_inflated_data):
     data = load_data(use_inflated_data)
     
     # Drop unnecessary columns
-    if use_inflated_data:
-        data.drop(columns=['2022 Dollars', 'Salary Cap'], inplace=True)
-        salary_cap_column = 'Salary_Cap_Inflated'
-    else:
-        data.drop(columns=['2022 Dollars', 'Salary_Cap_Inflated'], inplace=True)
-        salary_cap_column = 'Salary Cap'
+    columns_to_drop = ['2022 Dollars', 'Luxury Tax', '1st Apron', '2nd Apron', 'BAE', 'Standard /Non-Taxpayer', 'Taxpayer', 'Team Room /Under Cap']
+    data = data.drop(columns=[col for col in columns_to_drop if col in data.columns])
 
-    # Convert 'Season' to an integer
-    data['Season'] = data['Season'].str[:4].astype(int)
+    # Convert 'Season' to an integer if necessary
+    if data['Season'].dtype == 'object':
+        data['Season'] = data['Season'].str[:4].astype(int)
 
     # Handle missing values for numerical columns
     numerical_cols = data.select_dtypes(include=['float64', 'int64']).columns
@@ -77,27 +74,18 @@ def retrain_and_save_models(use_inflated_data):
     data[numerical_cols] = imputer.fit_transform(data[numerical_cols])
 
     # Feature engineering
-    data['PPG'] = data['PTS'] / data['GP']
-    data['APG'] = data['AST'] / data['GP']
-    data['RPG'] = data['TRB'] / data['GP']
-    data['SPG'] = data['STL'] / data['GP']
-    data['BPG'] = data['BLK'] / data['GP']
-    data['TOPG'] = data['TOV'] / data['GP']
-    data['WinPct'] = data['Wins'] / (data['Wins'] + data['Losses'])
-    data['SalaryGrowth'] = data['Salary'].pct_change().fillna(0)
-    data['Availability'] = data['GP'] / 82
-    data['SalaryPct'] = data['Salary'] / data[salary_cap_column]
+    data = feature_engineering(data, use_inflated_data)
 
     # Identify categorical and numerical columns
     categorical_cols = ['Player', 'Season', 'Position', 'Team']
-    numerical_cols = data.columns.difference(categorical_cols + ['Salary', 'SalaryPct', salary_cap_column])
+    numerical_cols = data.columns.difference(categorical_cols + ['Salary', 'SalaryPct', 'Salary Cap', 'Salary_Cap_Inflated'])
 
     # One-hot encode categorical variables
-    encoder = OneHotEncoder(drop='first', sparse_output=False)
+    encoder = OneHotEncoder(drop='first', sparse=False)
     encoded_cats = pd.DataFrame(encoder.fit_transform(data[categorical_cols]), columns=encoder.get_feature_names_out(categorical_cols))
 
     # Combine the numerical and encoded categorical data
-    data = pd.concat([data[numerical_cols], encoded_cats, data[['Player', 'Season', 'Salary', 'SalaryPct', salary_cap_column]]], axis=1)
+    data = pd.concat([data[numerical_cols], encoded_cats, data[['Player', 'Season', 'Salary', 'SalaryPct', 'Salary Cap', 'Salary_Cap_Inflated']]], axis=1)
 
     # Select initial features
     initial_features = ['Age', 'Years of Service', 'GP', 'PPG', 'APG', 'RPG', 'SPG', 'BPG', 'TOPG', 'FG%', '3P%', 'FT%', 'PER', 'WS', 'VORP', 'Availability'] + list(encoded_cats.columns)
@@ -229,3 +217,18 @@ def retrain_and_save_models(use_inflated_data):
 
     return best_model_name, best_model, evaluations, selected_features, scaler, data[salary_cap_column].max()
 
+if __name__ == "__main__":
+    print("Retraining models...")
+    best_model_name, best_model, evaluations, selected_features, scaler, max_salary_cap = retrain_and_save_models(use_inflated_data=False)
+    
+    print(f"\nBest model: {best_model_name}")
+    print("\nModel evaluations:")
+    for model, metrics in evaluations.items():
+        print(f"{model}:")
+        print(f"  MSE: {metrics['MSE']:.4f}")
+        print(f"  R²: {metrics['R²']:.4f}")
+    
+    print("\nSelected features:")
+    print(selected_features)
+    
+    print(f"\nMax salary cap: ${max_salary_cap:,.2f}")

@@ -10,6 +10,8 @@ from model_trainer import retrain_and_save_models
 from sklearn.metrics import mean_squared_error, r2_score
 import os
 import joblib
+from champ_percentile_ranks import calculate_percentiles, analyze_team_percentiles, get_champions
+from data_loader import load_predictions, get_project_root
 
 def filter_by_position(df, selected_positions):
     if not selected_positions:
@@ -27,9 +29,10 @@ def format_salary_df(df):
     return formatted_df[['Player', 'Position', 'Age', 'Salary', 'Predicted_Salary', 'Salary_Change']]
 
 def load_selected_model(model_name, use_inflated_data):
+    try:
         model, scaler, selected_features = load_model_and_scaler(model_name, use_inflated_data)
         df = load_data(use_inflated_data)
-        df = feature_engineering(df)
+        df = feature_engineering(df, use_inflated_data)
         df = handle_missing_values(df)
         
         X = df[selected_features]
@@ -44,8 +47,10 @@ def load_selected_model(model_name, use_inflated_data):
         max_salary_cap = df[salary_cap_column].max()
         
         return model_name, model, mse, r2, selected_features, scaler, max_salary_cap
+    except Exception as e:
+        st.error(f"Error in load_selected_model: {str(e)}")
+        raise
 
-# Add this function to find the best model
 def find_best_model(use_inflated_data):
     root_dir = get_project_root()
     suffix = '_inflated' if use_inflated_data else ''
@@ -55,12 +60,178 @@ def find_best_model(use_inflated_data):
     
     return load_selected_model(best_model_name, use_inflated_data)
 
+
+
+def load_champions_data():
+    root_dir = get_project_root()
+    champions_file = os.path.join(root_dir, 'data', 'processed', 'nba_champions.csv')
+    return pd.read_csv(champions_file)
+
+RELEVANT_STATS = ['PTS', 'TRB', 'AST', 'FG%', '3P%', 'FT%', 'PER', 'WS', 'VORP']
+
+def calculate_team_percentiles(team_players):
+    team_percentiles = {}
+    for stat in RELEVANT_STATS:
+        if stat in team_players.columns:
+            values = team_players[stat].values
+            team_percentiles[stat] = {
+                'min': np.min(values),
+                'max': np.max(values),
+                'mean': np.mean(values),
+                'std': np.std(values),
+                'above_average': np.sum(values > np.mean(values)),
+                'total_players': len(values)
+            }
+    return team_percentiles
+
+def analyze_trade(players1, players2, predictions_df):
+    group1_data = predictions_df[predictions_df['Player'].isin(players1)]
+    group2_data = predictions_df[predictions_df['Player'].isin(players2)]
+    
+    group1_percentiles = calculate_team_percentiles(group1_data)
+    group2_percentiles = calculate_team_percentiles(group2_data)
+    
+    return {
+        'group1': {
+            'players': group1_data,
+            'percentiles': group1_percentiles,
+            'salary_before': group1_data['Previous_Season_Salary'].sum(),
+            'salary_after': group1_data['Predicted_Salary'].sum(),
+        },
+        'group2': {
+            'players': group2_data,
+            'percentiles': group2_percentiles,
+            'salary_before': group2_data['Previous_Season_Salary'].sum(),
+            'salary_after': group2_data['Predicted_Salary'].sum(),
+        }
+    }
+
+
+def plot_salary_distribution(df):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+    sns.histplot(df['Salary_M'], bins=30, kde=True, ax=ax1)
+    ax1.set_title('Distribution of NBA Player Salaries (in Millions)')
+    ax1.set_xlabel('Salary (in Millions)')
+    sns.boxplot(y='Salary_M', x='Position', data=df, ax=ax2)
+    ax2.set_title('NBA Player Salaries by Position (in Millions)')
+    ax2.set_xlabel('Position')
+    ax2.set_ylabel('Salary (in Millions)')
+    plt.xticks(rotation=45)
+    return fig
+
+def plot_age_vs_salary(df):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.scatterplot(x='Age', y='Salary_M', hue='Position', data=df, ax=ax)
+    ax.set_title('Age vs Salary (in Millions)')
+    ax.set_xlabel('Age')
+    ax.set_ylabel('Salary (in Millions)')
+    return fig
+
+def plot_vorp_vs_salary(df):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.scatterplot(x='VORP', y='Salary_M', hue='Position', size='Age', data=df, ax=ax)
+    ax.set_title('VORP vs Salary')
+    ax.set_xlabel('VORP')
+    ax.set_ylabel('Salary (in Millions)')
+    return fig
+
+def plot_career_clusters(df):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.scatterplot(x='Age', y='Salary_M', hue='Cluster_Definition', style='Position', data=df, ax=ax)
+    ax.set_title('Career Clusters: Age vs Salary')
+    ax.set_xlabel('Age')
+    ax.set_ylabel('Salary (in Millions)')
+    return fig
+
+def plot_salary_change_distribution(filtered_df):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.histplot(filtered_df['Salary_Change'] / 1e6, bins=30, kde=True, ax=ax)
+    ax.set_title('Distribution of Predicted Salary Changes')
+    ax.set_xlabel('Salary Change (in Millions)')
+    ax.set_ylabel('Count')
+    return fig
+
+def plot_player_comparison(comparison_df):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    comparison_df['Salary_M'] = comparison_df['Predicted_Salary'] / 1e6
+    sns.barplot(x='Player', y='Salary_M', data=comparison_df, ax=ax)
+    ax.set_title('Predicted Salaries for Selected Players')
+    ax.set_xlabel('Player')
+    ax.set_ylabel('Predicted Salary (in Millions)')
+    plt.xticks(rotation=45, ha='right')
+    return fig
+
+def plot_performance_metrics_comparison(df, selected_players):
+    metrics = ['PTS', 'TRB', 'AST', 'PER', 'WS', 'VORP']
+    metrics_df = df[df['Player'].isin(selected_players)][['Player'] + metrics]
+    
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    for i, metric in enumerate(metrics):
+        sns.barplot(x='Player', y=metric, data=metrics_df, ax=axes[i//3, i%3])
+        axes[i//3, i%3].set_title(f'{metric} Comparison')
+        axes[i//3, i%3].set_xticklabels(axes[i//3, i%3].get_xticklabels(), rotation=45, ha='right')
+    plt.tight_layout()
+    return fig
+
+def plot_salary_difference_distribution(filtered_df):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.histplot(filtered_df['Salary_Difference'] / 1e6, bins=30, kde=True, ax=ax)
+    ax.set_title('Distribution of Salary Differences')
+    ax.set_xlabel('Salary Difference (in Millions)')
+    ax.set_ylabel('Count')
+    return fig
+
+def plot_category_analysis(avg_predictions, category):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    avg_predictions[['Salary', 'Predicted_Salary']].plot(kind='bar', ax=ax)
+    ax.set_title(f'Average Actual vs Predicted Salary by {category}')
+    ax.set_ylabel('Salary')
+    plt.xticks(rotation=45)
+    return fig
+
+def plot_model_evaluation(df, y_pred, model_choice):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(df['SalaryPct'], y_pred, alpha=0.5)
+    ax.plot([df['SalaryPct'].min(), df['SalaryPct'].max()], [df['SalaryPct'].min(), df['SalaryPct'].max()], 'r--', lw=2)
+    ax.set_xlabel("Actual Salary Percentage")
+    ax.set_ylabel("Predicted Salary Percentage")
+    ax.set_title(f"Actual vs Predicted Salary Percentage - {model_choice}")
+    return fig
+
+def plot_feature_importance(feature_importance, model_choice):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    feature_importance.plot(x='feature', y='importance', kind='bar', ax=ax)
+    ax.set_title(f"Feature Importances - {model_choice}")
+    ax.set_xlabel("Features")
+    ax.set_ylabel("Importance")
+    plt.xticks(rotation=45, ha='right')
+    return fig
+
+def plot_trade_impact(trade_analysis, team1, team2):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    x = range(len(RELEVANT_STATS))
+    width = 0.35
+    
+    group1_stats = [trade_analysis['group1']['percentiles'].get(stat, {}).get('mean', 0) for stat in RELEVANT_STATS]
+    group2_stats = [trade_analysis['group2']['percentiles'].get(stat, {}).get('mean', 0) for stat in RELEVANT_STATS]
+    
+    ax.bar([i - width/2 for i in x], group1_stats, width, label=team1)
+    ax.bar([i + width/2 for i in x], group2_stats, width, label=team2)
+    
+    ax.set_ylabel('Value')
+    ax.set_title('Trade Impact on Team Stats')
+    ax.set_xticks(x)
+    ax.set_xticklabels(RELEVANT_STATS, rotation=45, ha='right')
+    ax.legend()
+    
+    return fig
+
 def main():
     st.sidebar.title("Navigation")
     sections = ["Introduction", "Data Overview", "Exploratory Data Analysis", 
                 "Advanced Analytics", "Salary Predictions", "Player Comparisons", 
                 "Salary Comparison", "Analysis by Categories", "Model Selection and Evaluation",
-                "Model Retraining"]
+                "Model Retraining", "Trade Analysis"]
     choice = st.sidebar.radio("Go to", sections)
     
     # Update model selection dropdown
@@ -166,7 +337,7 @@ def main():
     elif choice == "Data Overview":
         st.header("Data Overview")
         st.write("First few rows of the current season's dataset:")
-        st.write(df.head())
+        st.write(df[['Player', 'Season', 'Salary', 'GP', 'PTS', 'TRB', 'AST', 'Injured', 'Injury_Periods', 'Position', 'Age', 'Team', 'Years of Service', 'PER', 'WS', 'VORP', 'Salary Cap', 'Salary_Cap_Inflated']].head())
         st.write("\nFirst few rows of the predictions dataset:")
         st.write(predictions.head())
         
@@ -426,6 +597,86 @@ def main():
                 st.error(f"An error occurred during model retraining: {str(e)}")
                 st.error("Please check the logs for more details.")
 
+    elif choice == "Trade Analysis":
+        st.header("Trade Analysis")
+        
+        try:
+            # Load the necessary data
+            use_inflated_data_trade = st.checkbox("Use Inflation Adjusted Salary Cap Data", key="trade_analysis_inflated_data")
+            
+            predictions = load_predictions(use_inflated_data_trade)
+            
+            if 'Team' not in predictions.columns:
+                st.error("The 'Team' column is missing from the predictions data. Please check your data loading process.")
+            else:
+                # Team filter
+                all_teams = sorted(predictions['Team'].unique())
+                team1 = st.selectbox("Select Team 1", all_teams, key="trade_analysis_team1")
+                team2 = st.selectbox("Select Team 2", all_teams, index=1, key="trade_analysis_team2")
+                
+                predictions1 = predictions[predictions['Team'] == team1]
+                predictions2 = predictions[predictions['Team'] == team2]
+                
+                st.subheader(f"Available Players for {team1}")
+                st.write(predictions1[['Player', 'Age', 'Position', 'Previous_Season_Salary', 'Predicted_Salary', 'PTS', 'TRB', 'AST']])
+                
+                st.subheader(f"Available Players for {team2}")
+                st.write(predictions2[['Player', 'Age', 'Position', 'Previous_Season_Salary', 'Predicted_Salary', 'PTS', 'TRB', 'AST']])
+                
+                # Player selection
+                players1 = st.multiselect(f"Select players from {team1}", predictions1['Player'].unique(), key="trade_analysis_players1")
+                players2 = st.multiselect(f"Select players from {team2}", predictions2['Player'].unique(), key="trade_analysis_players2")
+                
+                if st.button("Analyze Trade", key="trade_analysis_button"):
+                    if not players1 or not players2:
+                        st.warning("Please select players from both teams.")
+                    else:
+                        combined_predictions = pd.concat([predictions1, predictions2])
+                        trade_analysis = analyze_trade(players1, players2, combined_predictions)
+                        
+                        st.subheader("Trade Impact")
+                        
+                        for group, data in trade_analysis.items():
+                            st.write(f"\n{group.upper()} Analysis:")
+                            st.write(f"Total Salary Before: ${data['salary_before']/1e6:.2f}M")
+                            st.write(f"Total Salary After: ${data['salary_after']/1e6:.2f}M")
+                            st.write(f"Salary Change: ${(data['salary_after'] - data['salary_before'])/1e6:.2f}M")
+                            
+                            st.write("\nPlayer Details:")
+                            st.write(data['players'][['Player', 'Age', 'Position', 'Previous_Season_Salary', 'Predicted_Salary', 'Salary_Change', 'PTS', 'TRB', 'AST', 'PER', 'WS', 'VORP']])
+                            
+                            st.write("\nTeam Percentiles:")
+                            for stat in RELEVANT_STATS:
+                                if stat in data['percentiles']:
+                                    st.write(f"{stat}: {data['percentiles'][stat]['mean']:.2f}")
+                        
+                        st.subheader("Salary Comparison")
+                        group1_trade_salary = trade_analysis['group1']['salary_after']
+                        group2_trade_salary = trade_analysis['group2']['salary_after']
+                        salary_difference = abs(group1_trade_salary - group2_trade_salary)
+                        
+                        st.write(f"{team1} is trading ${group1_trade_salary/1e6:.2f}M in salary")
+                        st.write(f"{team2} is trading ${group2_trade_salary/1e6:.2f}M in salary")
+                        st.write(f"Salary difference: ${salary_difference/1e6:.2f}M")
+                        
+                        if salary_difference > 5e6:  # Assuming a 5 million threshold for salary matching
+                            st.warning("The salaries in this trade are not well-matched. This may not be a valid trade under NBA rules.")
+                        else:
+                            st.success("The salaries in this trade are well-matched.")
+                        
+                        # Visualize the trade impact
+                        fig = plot_trade_impact(trade_analysis, team1, team2)
+                        st.pyplot(fig)
+
+        except FileNotFoundError as e:
+            st.error(f"Error: {str(e)}")
+            st.error("Please make sure the predictions file exists in the correct location.")
+        except KeyError as e:
+            st.error(f"Error: {str(e)}")
+            st.error("Please check your data files and ensure they contain all required columns.")
+        except Exception as e:
+            st.error(f"An unexpected error occurred: {str(e)}")
+            st.error("Please check the data and try again.")
 
 if __name__ == "__main__":
     main()

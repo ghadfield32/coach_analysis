@@ -43,7 +43,7 @@ def load_model_and_scaler(model_name, inflated=False):
 
 def make_predictions(df, model, scaler, selected_features, season, use_inflated_data, max_salary_cap):
     df = df[df['Season'] == season].copy()
-    df = feature_engineering(df)
+    df = feature_engineering(df, use_inflated_data)
     df['Age'] += 1
     df['Season'] += 1
     
@@ -68,3 +68,24 @@ def make_predictions(df, model, scaler, selected_features, season, use_inflated_
     df.loc[:, 'Salary_Change'] = df['Predicted_Salary'] - df['Salary']
     
     return df
+
+
+if __name__ == "__main__":
+    from data_loader import load_data
+    
+    print("Loading model...")
+    model, scaler, selected_features = load_model_and_scaler('Random_Forest', inflated=False)
+    
+    print("\nLoading data...")
+    df = load_data(inflated=False)
+    
+    print("\nMaking predictions...")
+    season = df['Season'].max()
+    predictions = make_predictions(df, model, scaler, selected_features, season, use_inflated_data=False, max_salary_cap=df['Salary Cap'].max())
+    
+    print("\nPredictions shape:", predictions.shape)
+    print("\nFirst few rows of predictions:")
+    print(predictions[['Player', 'Salary', 'Predicted_Salary', 'Salary_Change']].head())
+    
+    print("\nNaN values in predictions:")
+    print(predictions.isna().sum())

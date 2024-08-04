@@ -1,11 +1,6 @@
 
 import pandas as pd
 import numpy as np
-from nba_api.stats.endpoints import commonallplayers, commonplayerinfo, playercareerstats, leaguestandings
-import time
-from requests.exceptions import RequestException
-from json.decoder import JSONDecodeError
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -17,20 +12,15 @@ from sklearn.feature_selection import RFE
 from sklearn.impute import SimpleImputer
 import joblib
 from sklearn.inspection import permutation_importance
-from fetch_utils import fetch_with_retry
-from scrape_utils import scrape_player_salary_data, scrape_team_salary_data, scrape_salary_cap_history
-from player_utils import fetch_all_players, process_player_data
-
-# Import other necessary functions (fetch_with_retry, scrape_functions, etc.)
 
 def load_and_preprocess_data(file_path, use_inflated_cap=True):
     data = pd.read_csv(file_path)
     
     if use_inflated_cap:
-        data.drop(columns=['2022 Dollars', 'Salary Cap'], inplace=True)
+        data.drop(columns=['Salary Cap'], inplace=True, errors='ignore')
         salary_cap_column = 'Salary_Cap_Inflated'
     else:
-        data.drop(columns=['2022 Dollars', 'Salary_Cap_Inflated'], inplace=True)
+        data.drop(columns=['Salary_Cap_Inflated'], inplace=True, errors='ignore')
         salary_cap_column = 'Salary Cap'
 
     data['Season'] = data['Season'].str[:4].astype(int)
@@ -47,7 +37,7 @@ def load_and_preprocess_data(file_path, use_inflated_cap=True):
     data['BPG'] = data['BLK'] / data['GP']
     data['TOPG'] = data['TOV'] / data['GP']
     data['WinPct'] = data['Wins'] / (data['Wins'] + data['Losses'])
-    data['SalaryGrowth'] = data['Salary'].pct_change().fillna(0)
+    data['SalaryGrowth'] = data.groupby('Player')['Salary'].pct_change().fillna(0)
     data['Availability'] = data['GP'] / 82
     data['SalaryPct'] = data['Salary'] / data[salary_cap_column]
 
@@ -87,12 +77,12 @@ def train_models(data_cleaned, initial_features, target_variable='SalaryPct', n_
     X_test_scaled = scaler.transform(X_test)
 
     models = {
-        'Random_Forest': RandomForestRegressor(random_state=42),
-        'Gradient_Boosting': GradientBoostingRegressor(random_state=42),
-        'Ridge_Regression': Ridge(),
+        'Random Forest': RandomForestRegressor(random_state=42),
+        'Gradient Boosting': GradientBoostingRegressor(random_state=42),
+        'Ridge Regression': Ridge(),
         'ElasticNet': ElasticNet(max_iter=10000),
         'SVR': SVR(),
-        'Decision_Tree': DecisionTreeRegressor(random_state=42)
+        'Decision Tree': DecisionTreeRegressor(random_state=42)
     }
 
     param_grids = {
@@ -153,70 +143,21 @@ def train_models(data_cleaned, initial_features, target_variable='SalaryPct', n_
     return best_models, scaler, selected_features
 
 def main():
-    start_year = 2024  # Current year
-    end_year = 2022    # Adjust as needed
-    processed_file_path = '../data/processed/nba_player_data.csv'
-    salary_cap_file_path = '../data/processed/salary_cap_history.csv'
+    processed_file_path = '../data/processed/nba_player_data_final_inflated.csv'
 
-    player_filter = input("Enter player name or 'all' for all players: ").strip().lower()
-    min_avg_minutes = None
-    if player_filter == 'all':
-        min_avg_minutes = float(input("Enter the minimum average minutes per game (default 25 mins): ") or 25)
-
-    existing_data = load_existing_data(processed_file_path)
-
-    try:
-        print(f"Updating data for years {start_year} to {end_year}")
-        updated_data = update_data(existing_data, start_year, end_year, player_filter, min_avg_minutes)
-        
-        if not updated_data.equals(existing_data):
-            print("New data retrieved. Merging with existing data...")
-            
-            print("Fetching salary cap data...")
-            salary_cap_data = scrape_salary_cap_history()
-            
-            if salary_cap_data is not None:
-                print("Salary cap data successfully retrieved.")
-                
-                salary_cap_data.to_csv(salary_cap_file_path, index=False)
-                print(f"Salary cap data saved to {salary_cap_file_path}")
-                
-                print("Merging salary cap data with player data...")
-                
-                salary_cap_columns = [col for col in updated_data.columns if 'Salary Cap' in col]
-                if salary_cap_columns:
-                    print(f"Removing existing Salary Cap columns: {salary_cap_columns}")
-                    updated_data = updated_data.drop(columns=salary_cap_columns)
-                    
-                updated_data = pd.merge(updated_data, salary_cap_data[['Season', 'Salary Cap']], on='Season', how='left')
-                
-                print("Final data shape:", updated_data.shape)
-                print("Final data columns:", updated_data.columns)
-            else:
-                print("Warning: Failed to retrieve salary cap data. Skipping merge.")
-
-            updated_data.to_csv(processed_file_path, index=False)
-            print(f"Updated data saved to {processed_file_path}")
-        else:
-            print("No new data to save. The dataset is already up-to-date.")
-
-        # Ask if user wants to train models
-        train_models_option = input("Do you want to train the models? (yes/no): ").strip().lower()
-        if train_models_option == 'yes':
-            use_inflated_cap = input("Use inflated salary cap? (yes/no): ").strip().lower() == 'yes'
-            target_variable = input("Choose target variable (SalaryPct/Salary): ").strip()
-            
-            data, salary_cap_column = load_and_preprocess_data(processed_file_path, use_inflated_cap)
-            data_cleaned, initial_features = prepare_data_for_training(data, salary_cap_column)
-            best_models, scaler, selected_features = train_models(data_cleaned, initial_features, target_variable)
-            
-            print("Model training completed.")
-
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        print("Traceback:")
-        import traceback
-        traceback.print_exc()
+    use_inflated_cap = input("Use inflated salary cap? (yes/no): ").strip().lower() == 'yes'
+    target_variable = input("Choose target variable (SalaryPct/Salary): ").strip()
+    
+    print(f"Loading and preprocessing data using {'inflated' if use_inflated_cap else 'regular'} salary cap...")
+    data, salary_cap_column = load_and_preprocess_data(processed_file_path, use_inflated_cap)
+    
+    print("Preparing data for training...")
+    data_cleaned, initial_features = prepare_data_for_training(data, salary_cap_column)
+    
+    print(f"Training models with target variable: {target_variable}")
+    best_models, scaler, selected_features = train_models(data_cleaned, initial_features, target_variable)
+    
+    print("Model training completed.")
 
 if __name__ == "__main__":
     main()
