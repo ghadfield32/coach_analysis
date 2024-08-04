@@ -27,3 +27,4 @@ shap
 beautifulsoup4
 cpi
 lxml
+IPython
