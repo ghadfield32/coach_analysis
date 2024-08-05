@@ -1,5 +1,6 @@
 import argparse
 import pandas as pd
+import logging
 from fetch_utils import fetch_all_players
 from process_utils import process_player_data, inflate_value, calculate_percentages
 from scrape_utils import scrape_salary_cap_history, scrape_player_salary_data, scrape_team_salary_data, load_injury_data
@@ -90,51 +91,62 @@ def update_data(existing_data, start_year, end_year, player_filter=None, min_avg
     return all_data
 
 def main(start_year, end_year, player_filter=None, min_avg_minutes=None, debug=False):
-    processed_file_path = 'data/processed/nba_player_data_final_inflated.csv'
-    salary_cap_file_path = 'data/processed/salary_cap_history_inflated.csv'
-
-    # Load existing data
+    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
+    
     try:
-        existing_data = pd.read_csv(processed_file_path)
-    except FileNotFoundError:
-        existing_data = pd.DataFrame()
+        logging.info(f"Starting data update for years {start_year} to {end_year}")
+        
+        processed_file_path = 'data/processed/nba_player_data_final_inflated.csv'
+        salary_cap_file_path = 'data/processed/salary_cap_history_inflated.csv'
 
-    try:
-        if debug:
-            print(f"Updating data for years {start_year} to {end_year}")
-        updated_data = update_data(existing_data, start_year, end_year, player_filter, min_avg_minutes, debug=debug)
+        # Load existing data
+        try:
+            existing_data = pd.read_csv(processed_file_path)
+        except FileNotFoundError:
+            existing_data = pd.DataFrame()
 
-        if not updated_data.empty:
+        try:
             if debug:
-                print("New data retrieved. Processing and saving...")
+                print(f"Updating data for years {start_year} to {end_year}")
+            updated_data = update_data(existing_data, start_year, end_year, player_filter, min_avg_minutes, debug=debug)
 
-            salary_cap_data = scrape_salary_cap_history(debug=debug)
+            if not updated_data.empty:
+                if debug:
+                    print("New data retrieved. Processing and saving...")
 
-            if salary_cap_data is not None:
-                salary_cap_data.to_csv(salary_cap_file_path, index=False)
-                updated_data = merge_salary_cap_data(updated_data, salary_cap_data)
+                salary_cap_data = scrape_salary_cap_history(debug=debug)
 
-            # Final cleaning of the data
-            updated_data = clean_dataframe(updated_data)
+                if salary_cap_data is not None:
+                    salary_cap_data.to_csv(salary_cap_file_path, index=False)
+                    updated_data = merge_salary_cap_data(updated_data, salary_cap_data)
 
-            # Save the updated data
-            updated_data.to_csv(processed_file_path, index=False, float_format='%.2f')
-            if debug:
-                print(f"Updated data saved to {processed_file_path}")
+                # Final cleaning of the data
+                updated_data = clean_dataframe(updated_data)
 
-            # Print summary of the data
-            summary_columns = ['Season', 'Player', 'Salary', 'GP', 'PTS', 'TRB', 'AST', 'PER', 'WS', 'VORP', 'Injured', 'FG%', '3P%', 'FT%', 'Team_Salary', 'Salary Cap', 'Salary_Cap_Inflated']
-            available_columns = [col for col in summary_columns if col in updated_data.columns]
-            print("\nData summary:")
-            print(updated_data[available_columns].head().to_string(index=False))
-        else:
-            print("No new data to save. The dataset is empty.")
+                # Save the updated data
+                updated_data.to_csv(processed_file_path, index=False, float_format='%.2f')
+                if debug:
+                    print(f"Updated data saved to {processed_file_path}")
 
+                # Print summary of the data
+                summary_columns = ['Season', 'Player', 'Salary', 'GP', 'PTS', 'TRB', 'AST', 'PER', 'WS', 'VORP', 'Injured', 'FG%', '3P%', 'FT%', 'Team_Salary', 'Salary Cap', 'Salary_Cap_Inflated']
+                available_columns = [col for col in summary_columns if col in updated_data.columns]
+                print("\nData summary:")
+                print(updated_data[available_columns].head().to_string(index=False))
+            else:
+                print("No new data to save. The dataset is empty.")
+
+        except Exception as e:
+            print(f"An error occurred: {str(e)}")
+            print("Traceback:")
+            import traceback
+            traceback.print_exc()
+            
+        logging.info("Data update completed successfully")
     except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        print("Traceback:")
-        import traceback
-        traceback.print_exc()
+        logging.error(f"An error occurred: {str(e)}")
+        logging.error("Traceback:", exc_info=True)
 
 if __name__ == "__main__":
     current_year = datetime.now().year
