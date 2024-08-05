@@ -98,18 +98,3 @@ def validate_data(df):
             print(f"Warning: Negative values found in column '{col}'")
     
     return df
-
-def merge_injury_data(player_data, injury_data):
-    merged_data = player_data.copy()
-    merged_data['Injured'] = False
-    merged_data['Injury_Periods'] = ''
-
-    for index, row in merged_data.iterrows():
-        player_injuries = injury_data[(injury_data['Season'] == row['Season']) & 
-                                      (injury_data['Relinquished'].str.contains(row['Player'], case=False, na=False))]
-        if not player_injuries.empty:
-            merged_data.at[index, 'Injured'] = True
-            injury_periods = player_injuries.apply(lambda x: f"{x['Date'].strftime('%Y-%m-%d')} - {x['Notes']}", axis=1).tolist()
-            merged_data.at[index, 'Injury_Periods'] = '; '.join(injury_periods)
-
-    return merged_data
