@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import cpi
-# from fetch_utils import fetch_player_info, fetch_career_stats, fetch_league_standings
-# from scrape_utils import scrape_advanced_metrics
+from fetch_utils import fetch_player_info, fetch_career_stats, fetch_league_standings
+from scrape_utils import scrape_advanced_metrics
 
 def inflate_value(value, year_str, debug=False):
     try:
