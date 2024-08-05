@@ -36,4 +36,3 @@ dependencies:
     - cpi
     - lxml
     - IPython
-    - logging

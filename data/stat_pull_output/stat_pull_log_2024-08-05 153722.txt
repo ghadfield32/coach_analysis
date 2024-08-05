@@ -1,0 +1,37 @@
+2024-08-05 15:37:22,003 - INFO - Starting data update for years 2022 to 2023
+2024-08-05 15:37:22,073 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:37:22,240 - DEBUG - https://hoopshype.com:443 "GET /salaries/players/2022-2023/ HTTP/11" 200 None
+2024-08-05 15:37:25,411 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:37:25,537 - DEBUG - https://hoopshype.com:443 "GET /salaries/players/2023-2024/ HTTP/11" 200 None
+2024-08-05 15:37:28,705 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:37:28,813 - DEBUG - https://hoopshype.com:443 "GET /salaries/2022-23/ HTTP/11" 200 None
+2024-08-05 15:37:28,851 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:29,156 - DEBUG - https://stats.nba.com:443 "GET /stats/commonallplayers?IsOnlyCurrentSeason=0&LeagueID=00&Season=2022-23 HTTP/11" 200 157028
+2024-08-05 15:37:32,420 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:32,580 - DEBUG - https://stats.nba.com:443 "GET /stats/commonplayerinfo?LeagueID=&PlayerID=2544 HTTP/11" 200 829
+2024-08-05 15:37:35,585 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:35,802 - DEBUG - https://stats.nba.com:443 "GET /stats/playercareerstats?LeagueID=&PerMode=Totals&PlayerID=2544 HTTP/11" 200 4313
+2024-08-05 15:37:38,813 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:39,049 - DEBUG - https://stats.nba.com:443 "GET /stats/leaguestandings?LeagueID=00&Season=2022-23&SeasonType=Regular+Season&SeasonYear= HTTP/11" 200 5041
+2024-08-05 15:37:42,057 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:37:42,201 - DEBUG - https://www.basketball-reference.com:443 "GET /search/search.fcgi?search=LeBron+James HTTP/11" 200 None
+2024-08-05 15:37:44,222 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:37:44,322 - DEBUG - https://www.basketball-reference.com:443 "GET /players/j/jamesle01.html HTTP/11" 200 None
+2024-08-05 15:37:44,616 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:37:44,697 - DEBUG - https://hoopshype.com:443 "GET /salaries/2023-24/ HTTP/11" 200 None
+2024-08-05 15:37:44,751 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:44,896 - DEBUG - https://stats.nba.com:443 "GET /stats/commonallplayers?IsOnlyCurrentSeason=0&LeagueID=00&Season=2023-24 HTTP/11" 200 157258
+2024-08-05 15:37:48,146 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:48,320 - DEBUG - https://stats.nba.com:443 "GET /stats/commonplayerinfo?LeagueID=&PlayerID=2544 HTTP/11" 200 829
+2024-08-05 15:37:51,326 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:51,623 - DEBUG - https://stats.nba.com:443 "GET /stats/playercareerstats?LeagueID=&PerMode=Totals&PlayerID=2544 HTTP/11" 200 4313
+2024-08-05 15:37:54,633 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:37:54,774 - DEBUG - https://stats.nba.com:443 "GET /stats/leaguestandings?LeagueID=00&Season=2023-24&SeasonType=Regular+Season&SeasonYear= HTTP/11" 200 5354
+2024-08-05 15:37:57,780 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:37:57,890 - DEBUG - https://www.basketball-reference.com:443 "GET /search/search.fcgi?search=LeBron+James HTTP/11" 200 None
+2024-08-05 15:37:59,913 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:38:00,002 - DEBUG - https://www.basketball-reference.com:443 "GET /players/j/jamesle01.html HTTP/11" 200 None
+2024-08-05 15:38:00,265 - DEBUG - Starting new HTTPS connection (1): basketball.realgm.com:443
+2024-08-05 15:38:00,986 - DEBUG - https://basketball.realgm.com:443 "GET /nba/info/salary_cap HTTP/11" 200 20463
+2024-08-05 15:38:01,064 - INFO - Data update completed successfully
+2024-08-05 15:38:01,065 - INFO - Total execution time: 39.07 seconds

@@ -1,10 +1,14 @@
 import argparse
 import pandas as pd
 import logging
+import time
+import glob
+import os
+from datetime import datetime, timedelta
 from fetch_utils import fetch_all_players
 from process_utils import process_player_data, inflate_value, calculate_percentages
-from scrape_utils import scrape_salary_cap_history, scrape_player_salary_data, scrape_team_salary_data, load_injury_data
-from data_utils import clean_dataframe, merge_salary_cap_data, validate_data, merge_injury_data
+from scrape_utils import scrape_salary_cap_history, merge_injury_data, scrape_player_salary_data, scrape_team_salary_data, load_injury_data
+from data_utils import clean_dataframe, merge_salary_cap_data, validate_data
 
 
 def update_data(existing_data, start_year, end_year, player_filter=None, min_avg_minutes=None, debug=False):
@@ -90,15 +94,37 @@ def update_data(existing_data, start_year, end_year, player_filter=None, min_avg
 
     return all_data
 
+def get_timestamp():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def remove_old_logs(log_dir, days_to_keep=7):
+    current_time = datetime.now()
+    for log_file in glob.glob(os.path.join(log_dir, 'stat_pull_log_*.txt')):
+        file_modified_time = datetime.fromtimestamp(os.path.getmtime(log_file))
+        if current_time - file_modified_time > timedelta(days=days_to_keep):
+            os.remove(log_file)
+
 def main(start_year, end_year, player_filter=None, min_avg_minutes=None, debug=False):
-    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO,
+    start_time = time.time()
+    
+    # Create the output directory if it doesn't exist
+    output_dir = '../data/stat_pull_output'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Remove old log files
+    remove_old_logs(output_dir)
+    
+    # Set up logging
+    log_file = os.path.join(output_dir, f'stat_pull_log_{get_timestamp()}.txt')
+    logging.basicConfig(filename=log_file, level=logging.DEBUG if debug else logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s')
     
     try:
         logging.info(f"Starting data update for years {start_year} to {end_year}")
         
-        processed_file_path = 'data/processed/nba_player_data_final_inflated.csv'
-        salary_cap_file_path = 'data/processed/salary_cap_history_inflated.csv'
+        
+        processed_file_path = '../data/processed/nba_player_data_final_inflated.csv'
+        salary_cap_file_path = '../data/processed/salary_cap_history_inflated.csv'
 
         # Load existing data
         try:
@@ -147,6 +173,14 @@ def main(start_year, end_year, player_filter=None, min_avg_minutes=None, debug=F
     except Exception as e:
         logging.error(f"An error occurred: {str(e)}")
         logging.error("Traceback:", exc_info=True)
+    finally:
+        end_time = time.time()
+        execution_time = end_time - start_time
+        logging.info(f"Total execution time: {execution_time:.2f} seconds")
+
+        # Print summary to console as well
+        print(f"Process completed. Log file saved to: {log_file}")
+        print(f"Total execution time: {execution_time:.2f} seconds")
 
 if __name__ == "__main__":
     current_year = datetime.now().year

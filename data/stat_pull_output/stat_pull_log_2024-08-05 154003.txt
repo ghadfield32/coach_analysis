@@ -1,0 +1,117 @@
+2024-08-05 15:40:03,639 - INFO - Starting data update for years 2022 to 2023
+2024-08-05 15:40:03,710 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:40:03,822 - DEBUG - https://hoopshype.com:443 "GET /salaries/players/2022-2023/ HTTP/11" 200 None
+2024-08-05 15:40:06,988 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:40:07,058 - DEBUG - https://hoopshype.com:443 "GET /salaries/players/2023-2024/ HTTP/11" 200 None
+2024-08-05 15:40:10,238 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:40:10,324 - DEBUG - https://hoopshype.com:443 "GET /salaries/2022-23/ HTTP/11" 200 None
+2024-08-05 15:40:10,379 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:10,598 - DEBUG - https://stats.nba.com:443 "GET /stats/commonallplayers?IsOnlyCurrentSeason=0&LeagueID=00&Season=2022-23 HTTP/11" 200 157028
+2024-08-05 15:40:13,868 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:14,031 - DEBUG - https://stats.nba.com:443 "GET /stats/commonplayerinfo?LeagueID=&PlayerID=2544 HTTP/11" 200 829
+2024-08-05 15:40:17,037 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:17,184 - DEBUG - https://stats.nba.com:443 "GET /stats/playercareerstats?LeagueID=&PerMode=Totals&PlayerID=2544 HTTP/11" 200 4313
+2024-08-05 15:40:20,195 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:20,339 - DEBUG - https://stats.nba.com:443 "GET /stats/leaguestandings?LeagueID=00&Season=2022-23&SeasonType=Regular+Season&SeasonYear= HTTP/11" 200 5041
+2024-08-05 15:40:23,346 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:40:23,435 - DEBUG - https://www.basketball-reference.com:443 "GET /search/search.fcgi?search=LeBron+James HTTP/11" 200 None
+2024-08-05 15:40:25,456 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:40:25,588 - DEBUG - https://www.basketball-reference.com:443 "GET /players/j/jamesle01.html HTTP/11" 200 None
+2024-08-05 15:40:25,890 - DEBUG - Starting new HTTPS connection (1): hoopshype.com:443
+2024-08-05 15:40:25,968 - DEBUG - https://hoopshype.com:443 "GET /salaries/2023-24/ HTTP/11" 200 None
+2024-08-05 15:40:26,026 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:26,166 - DEBUG - https://stats.nba.com:443 "GET /stats/commonallplayers?IsOnlyCurrentSeason=0&LeagueID=00&Season=2023-24 HTTP/11" 200 157258
+2024-08-05 15:40:29,424 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:29,597 - DEBUG - https://stats.nba.com:443 "GET /stats/commonplayerinfo?LeagueID=&PlayerID=2544 HTTP/11" 200 829
+2024-08-05 15:40:32,602 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:32,805 - DEBUG - https://stats.nba.com:443 "GET /stats/playercareerstats?LeagueID=&PerMode=Totals&PlayerID=2544 HTTP/11" 200 4313
+2024-08-05 15:40:35,815 - DEBUG - Starting new HTTPS connection (1): stats.nba.com:443
+2024-08-05 15:40:35,955 - DEBUG - https://stats.nba.com:443 "GET /stats/leaguestandings?LeagueID=00&Season=2023-24&SeasonType=Regular+Season&SeasonYear= HTTP/11" 200 5354
+2024-08-05 15:40:38,962 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:40:39,053 - DEBUG - https://www.basketball-reference.com:443 "GET /search/search.fcgi?search=LeBron+James HTTP/11" 200 None
+2024-08-05 15:40:41,075 - DEBUG - Starting new HTTPS connection (1): www.basketball-reference.com:443
+2024-08-05 15:40:41,220 - DEBUG - https://www.basketball-reference.com:443 "GET /players/j/jamesle01.html HTTP/11" 200 None
+2024-08-05 15:40:41,486 - DEBUG - Starting new HTTPS connection (1): basketball.realgm.com:443
+2024-08-05 15:40:41,717 - DEBUG - https://basketball.realgm.com:443 "GET /nba/info/salary_cap HTTP/11" 200 20463
+2024-08-05 15:40:41,789 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,789 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,789 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,790 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,790 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,790 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,790 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,790 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,791 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,791 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,791 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,791 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,791 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,792 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,792 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,792 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,792 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,792 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,792 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,793 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,793 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,793 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,793 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,793 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,794 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,794 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,794 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,794 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,794 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,794 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,795 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,795 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,795 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,795 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,795 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,795 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,795 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,796 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,796 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,796 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,796 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,796 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,796 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,797 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,797 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,797 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,797 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,797 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,797 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,797 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,798 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,798 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,798 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,798 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,798 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,798 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,799 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,799 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,799 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,799 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,799 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,799 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,799 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,800 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,800 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,800 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,800 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,800 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,801 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,801 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,801 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,801 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,801 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,801 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,801 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,802 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,802 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,802 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,802 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,802 - DEBUG - Retrieving series with id CUUR0000SA0
+2024-08-05 15:40:41,833 - INFO - Data update completed successfully
+2024-08-05 15:40:41,833 - INFO - Total execution time: 38.20 seconds

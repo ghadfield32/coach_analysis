@@ -29,4 +29,3 @@ cpi==1.1.7
 lxml==5.2.2
 ipython==8.26.0
 scipy==1.14.0
-logging

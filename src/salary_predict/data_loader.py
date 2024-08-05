@@ -3,9 +3,29 @@ import pandas as pd
 import os
 
 def get_project_root():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(current_dir))
+    """
+    This function returns the path to the project root directory, 
+    which is assumed to be the directory containing this file or its ancestors.
+    """
+    try:
+        # Use the __file__ attribute to determine the current directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        # Fallback to current working directory if __file__ is not available
+        current_dir = os.getcwd()
 
+    # Define the expected name of the root directory
+    root_dir_name = 'coach_analysis'
+    
+    # Traverse upwards in the directory hierarchy to find the root directory
+    while True:
+        if os.path.basename(current_dir) == root_dir_name:
+            return current_dir
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            raise FileNotFoundError(f"Root directory '{root_dir_name}' not found.")
+        current_dir = parent_dir
+        
 def load_data(inflated=False):
     root_dir = get_project_root()
     file_name = 'final_salary_data_with_yos_and_inflated_cap_2000_on.csv'
@@ -50,49 +70,34 @@ def load_predictions(inflated=False, team=None):
     
     df_predictions = pd.read_csv(predictions_path)
     
-    # Check for required columns
-    required_columns_predictions = ['Player', 'Predicted_Season']
-    required_columns_actual = ['Player', 'Season']
+    print("Debug: df_predictions shape:", df_predictions.shape)
+    print("Debug: df_predictions columns:", df_predictions.columns)
     
-    missing_columns_predictions = [col for col in required_columns_predictions if col not in df_predictions.columns]
-    missing_columns_actual = [col for col in required_columns_actual if col not in df_actual.columns]
+    # Merge predictions with actual data to get team information
+    df_merged = pd.merge(df_predictions, df_actual[['Player', 'Team', 'Season']], 
+                         left_on=['Player', 'Predicted_Season'], 
+                         right_on=['Player', 'Season'], 
+                         how='left')
     
-    if missing_columns_predictions:
-        raise KeyError(f"The following required columns are missing in the predictions dataframe: {', '.join(missing_columns_predictions)}")
-    if missing_columns_actual:
-        raise KeyError(f"The following required columns are missing in the actual data dataframe: {', '.join(missing_columns_actual)}")
+    print("Debug: df_merged shape after merge:", df_merged.shape)
+    print("Debug: df_merged columns after merge:", df_merged.columns)
     
-    # Rename 'Predicted_Season' to 'Season' in predictions dataframe for merging
-    df_predictions = df_predictions.rename(columns={'Predicted_Season': 'Season'})
+    # Drop the redundant 'Season' column and rename 'Predicted_Season'
+    df_merged = df_merged.drop(columns=['Season'])
+    df_merged = df_merged.rename(columns={'Predicted_Season': 'Season'})
     
-    # Merge predictions with actual data
-    df_merged = pd.merge(df_predictions, df_actual, on=['Player', 'Season'], suffixes=('_pred', ''), how='left')
-    
-    # Rename columns to match expected names
-    df_merged = df_merged.rename(columns={
-        'Season': 'Predicted_Season',  # Change back to 'Predicted_Season'
-        'Salary': 'Previous_Season_Salary',
-        'Predicted_Salary_Pct': 'SalaryPct',
-        'Age_pred': 'Age'  # Use predicted age
-    })
-    
-    # Select relevant columns
-    relevant_columns = ['Player', 'Predicted_Season', 'Team', 'Age', 'Position', 'Previous_Season_Salary', 
-                        'Predicted_Salary', 'Salary_Change', 'SalaryPct', 'GP', 'MP', 'PTS', 'TRB', 'AST', 
-                        'FG%', '3P%', 'FT%', 'PER', 'WS', 'VORP']
-    
-    # Check if all relevant columns are present
-    missing_columns = [col for col in relevant_columns if col not in df_merged.columns]
+    # Ensure all required columns are present
+    required_columns = ['Player', 'Season', 'Team', 'Age', 'Predicted_Salary', 'Previous_Season_Salary', 'Salary_Change']
+    missing_columns = [col for col in required_columns if col not in df_merged.columns]
     if missing_columns:
-        print(f"Warning: The following columns are missing and will be excluded: {', '.join(missing_columns)}")
-        relevant_columns = [col for col in relevant_columns if col in df_merged.columns]
+        print(f"Debug: Missing columns: {missing_columns}")
+        raise KeyError(f"The following required columns are missing in the merged dataframe: {', '.join(missing_columns)}")
     
-    df_merged = df_merged[relevant_columns]
+    print("Debug: Unique teams in df_merged:", df_merged['Team'].unique())
+    print("Debug: Number of unique teams in df_merged:", df_merged['Team'].nunique())
     
     # Filter by team if specified
     if team:
-        if 'Team' not in df_merged.columns:
-            raise KeyError("The 'Team' column is missing in the merged dataframe.")
         df_merged = df_merged[df_merged['Team'] == team]
     
     return df_merged
