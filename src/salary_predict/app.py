@@ -12,6 +12,7 @@ import os
 import joblib
 from champ_percentile_ranks import calculate_percentiles, analyze_team_percentiles, get_champions
 from data_loader import load_predictions, get_project_root
+from trade_utils import analyze_trade, plot_trade_impact, analyze_trade_impact
 
 def filter_by_position(df, selected_positions):
     if not selected_positions:
@@ -207,24 +208,6 @@ def plot_feature_importance(feature_importance, model_choice):
     plt.xticks(rotation=45, ha='right')
     return fig
 
-def plot_trade_impact(trade_analysis, team1, team2):
-    fig, ax = plt.subplots(figsize=(12, 6))
-    x = range(len(RELEVANT_STATS))
-    width = 0.35
-    
-    group1_stats = [trade_analysis['group1']['percentiles'].get(stat, {}).get('mean', 0) for stat in RELEVANT_STATS]
-    group2_stats = [trade_analysis['group2']['percentiles'].get(stat, {}).get('mean', 0) for stat in RELEVANT_STATS]
-    
-    ax.bar([i - width/2 for i in x], group1_stats, width, label=team1)
-    ax.bar([i + width/2 for i in x], group2_stats, width, label=team2)
-    
-    ax.set_ylabel('Value')
-    ax.set_title('Trade Impact on Team Stats')
-    ax.set_xticks(x)
-    ax.set_xticklabels(RELEVANT_STATS, rotation=45, ha='right')
-    ax.legend()
-    
-    return fig
 
 def main():
     st.sidebar.title("Navigation")

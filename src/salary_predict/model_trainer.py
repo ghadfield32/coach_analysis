@@ -1,234 +1,209 @@
-
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge, ElasticNet
-from sklearn.svm import SVR
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.feature_selection import RFE
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.impute import SimpleImputer
 import joblib
+from sklearn.model_selection import GridSearchCV
+from sklearn.feature_selection import SelectFromModel
 from sklearn.inspection import permutation_importance
-from data_loader import get_project_root, load_data
-import os
+from sklearn.feature_selection import mutual_info_regression
+from sklearn.model_selection import cross_val_score
 
-def retrain_models(X, y, model_params):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    scaler = StandardScaler()
-    X_train_scaled = pd.DataFrame(scaler.fit_transform(X_train), columns=X_train.columns)
-    X_test_scaled = pd.DataFrame(scaler.transform(X_test), columns=X_test.columns)
-    
-    models = {}
-    for name, (model, params) in model_params.items():
-        grid_search = GridSearchCV(estimator=model, param_grid=params, cv=5, n_jobs=-1, scoring='neg_mean_squared_error')
-        grid_search.fit(X_train_scaled, y_train)
-        models[name] = grid_search.best_estimator_
-    
-    return models, X_train_scaled, X_test_scaled, y_train, y_test, scaler
-
-def save_models(models, scaler, selected_features, inflated=False):
+def load_data(inflated=False, debug=False):
     root_dir = get_project_root()
-    suffix = '_inflated' if inflated else ''
-    model_name_mapping = {
-        'Random Forest': 'Random_Forest',
-        'Gradient Boosting': 'Gradient_Boosting',
-        'Ridge Regression': 'Ridge_Regression',
-        'ElasticNet': 'ElasticNet',
-        'SVR': 'SVR',
-        'Decision Tree': 'Decision_Tree'
-    }
-    for name, model in models.items():
-        formatted_name = model_name_mapping[name]
-        joblib.dump(model, os.path.join(root_dir, 'data', 'models', f'{formatted_name}_salary_prediction_model{suffix}.joblib'))
-    joblib.dump(scaler, os.path.join(root_dir, 'data', 'models', f'scaler{suffix}.joblib'))
-    joblib.dump(selected_features, os.path.join(root_dir, 'data', 'models', f'selected_features{suffix}.joblib'))
-
-def evaluate_models(models, X_test, y_test):
-    evaluations = {}
-    for name, model in models.items():
-        y_pred = model.predict(X_test)
-        mse = mean_squared_error(y_test, y_pred)
-        r2 = r2_score(y_test, y_pred)
-        evaluations[name] = {"MSE": mse, "R²": r2}
-    return evaluations
-
-def retrain_and_save_models(use_inflated_data):
-    # Load the appropriate data
-    data = load_data(use_inflated_data)
+    file_name = 'nba_player_data_final_inflated.csv'
+    file_path = os.path.join(root_dir, 'data', 'processed', file_name)
     
-    # Drop unnecessary columns
-    columns_to_drop = ['2022 Dollars', 'Luxury Tax', '1st Apron', '2nd Apron', 'BAE', 'Standard /Non-Taxpayer', 'Taxpayer', 'Team Room /Under Cap']
-    data = data.drop(columns=[col for col in columns_to_drop if col in data.columns])
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"The file {file_path} does not exist. Please check the file path.")
+    
+    data = pd.read_csv(file_path)
+    
+    if inflated:
+        data.drop(columns=['Salary Cap'], inplace=True, errors='ignore')
+        salary_cap_column = 'Salary_Cap_Inflated'
+    else:
+        data.drop(columns=['Salary_Cap_Inflated'], inplace=True, errors='ignore')
+        salary_cap_column = 'Salary Cap'
 
-    # Convert 'Season' to an integer if necessary
-    if data['Season'].dtype == 'object':
-        data['Season'] = data['Season'].str[:4].astype(int)
-
+    # Convert 'Season' to the correct format
+    data['Season'] = data['Season'].str[:4].astype(int)
+    
     # Handle missing values for numerical columns
     numerical_cols = data.select_dtypes(include=['float64', 'int64']).columns
     imputer = SimpleImputer(strategy='mean')
     data[numerical_cols] = imputer.fit_transform(data[numerical_cols])
 
     # Feature engineering
-    data = feature_engineering(data, use_inflated_data)
+    data['PPG'] = data['PTS'] / data['GP']
+    data['APG'] = data['AST'] / data['GP']
+    data['RPG'] = data['TRB'] / data['GP']
+    data['SPG'] = data['STL'] / data['GP']
+    data['BPG'] = data['BLK'] / data['GP']
+    data['TOPG'] = data['TOV'] / data['GP']
+    data['WinPct'] = data['Wins'] / (data['Wins'] + data['Losses'])
+    data['Availability'] = data['GP'] / 82
+    data['SalaryPct'] = data['Salary'] / data[salary_cap_column]
 
-    # Identify categorical and numerical columns
-    categorical_cols = ['Player', 'Season', 'Position', 'Team']
-    numerical_cols = data.columns.difference(categorical_cols + ['Salary', 'SalaryPct', 'Salary Cap', 'Salary_Cap_Inflated'])
+    if debug:
+        print("Debug: Data shape after preprocessing:", data.shape)
+        print("Debug: Columns after preprocessing:", data.columns)
+        print("Debug: First few rows of preprocessed data:")
+        print(data.head())
 
-    # One-hot encode categorical variables
-    encoder = OneHotEncoder(drop='first', sparse=False)
-    encoded_cats = pd.DataFrame(encoder.fit_transform(data[categorical_cols]), columns=encoder.get_feature_names_out(categorical_cols))
+    return data, salary_cap_column
 
-    # Combine the numerical and encoded categorical data
-    data = pd.concat([data[numerical_cols], encoded_cats, data[['Player', 'Season', 'Salary', 'SalaryPct', 'Salary Cap', 'Salary_Cap_Inflated']]], axis=1)
+# Usage:
+data, salary_cap_column = load_data(inflated=False, debug=True)
 
-    # Select initial features
-    initial_features = ['Age', 'Years of Service', 'GP', 'PPG', 'APG', 'RPG', 'SPG', 'BPG', 'TOPG', 'FG%', '3P%', 'FT%', 'PER', 'WS', 'VORP', 'Availability'] + list(encoded_cats.columns)
+def prepare_data_for_training(data, salary_cap_column, debug=False):
+    # Using Label Encoding for categorical columns
+    label_encoders = {}
+    for column in ['Player', 'Season', 'Position', 'Team']:
+        le = LabelEncoder()
+        data[column] = le.fit_transform(data[column])
+        label_encoders[column] = le
+    
+    initial_features = ['Age', 'Years of Service', 'GP', 'PPG', 'APG', 'RPG', 'SPG', 'BPG', 'TOPG', 'FG%', '3P%', 'FT%', 'PER', 'WS', 'VORP', 'Availability', 'Player', 'Season', 'Position', 'Team']
 
-    # Create a new DataFrame with only the features we're interested in and the target variable
-    data_subset = data[initial_features + ['SalaryPct']].copy()
-
-    # Drop rows with any missing values
+    data_subset = data[initial_features + ['SalaryPct', 'Salary']].copy()
     data_cleaned = data_subset.dropna()
 
-    # Separate features and target variable
+    if debug:
+        print("Debug: Data shape after cleaning:", data_cleaned.shape)
+        print("Debug: Selected features:", initial_features)
+
+    return data_cleaned, initial_features, label_encoders
+
+# Usage:
+data_cleaned, initial_features, label_encoders = prepare_data_for_training(data, salary_cap_column, debug=True)
+
+def save_models(models, scaler, selected_features, inflated=False):
+    root_dir = get_project_root()
+    suffix = '_inflated' if inflated else ''
+    model_name_mapping = {
+        'Random_Forest': 'Random_Forest',
+        'Gradient_Boosting': 'Gradient_Boosting',
+        'Ridge_Regression': 'Ridge_Regression',
+        'ElasticNet': 'ElasticNet',
+        'SVR': 'SVR',
+        'Decision_Tree': 'Decision_Tree'
+    }
+    for name, model in models.items():
+        try:
+            formatted_name = model_name_mapping.get(name, name)
+            joblib.dump(model, os.path.join(root_dir, 'data', 'models', f'{formatted_name}_salary_prediction_model{suffix}.joblib'))
+        except Exception as e:
+            print(f"Error saving model {name}: {str(e)}")
+    
+    
+    try:
+        joblib.dump(scaler, os.path.join(root_dir, 'data', 'models', f'scaler{suffix}.joblib'))
+        joblib.dump(selected_features, os.path.join(root_dir, 'data', 'models', f'selected_features{suffix}.joblib'))
+    except Exception as e:
+        print(f"Error saving scaler or selected features: {str(e)}")
+    
+def retrain_and_save_models(use_inflated_data, debug=False):
+    data, salary_cap_column = load_data(use_inflated_data, debug)
+    data_cleaned, initial_features, label_encoders = prepare_data_for_training(data, salary_cap_column, debug)
+
     X = data_cleaned[initial_features]
     y = data_cleaned['SalaryPct']
 
-    # Perform feature selection
-    rfe = RFE(estimator=RandomForestRegressor(n_estimators=100, random_state=42), n_features_to_select=10)
-    rfe = rfe.fit(X, y)
-    selected_features = [feature for feature, selected in zip(initial_features, rfe.support_) if selected]
+    # Feature selection using mutual information
+    mi_scores = mutual_info_regression(X, y)
+    mi_scores = pd.Series(mi_scores, index=initial_features)
+    top_features = mi_scores.nlargest(15).index.tolist()  # Select top 15 features
 
-    print("Selected features by RFE:", selected_features)
+    if debug:
+        print("Debug: Top 15 features based on mutual information:")
+        print(mi_scores.nlargest(15))
 
-    X = data_cleaned[selected_features]
-    y = data_cleaned['SalaryPct']
+    X = X[top_features]
 
-    # Split the data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Scale the features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # Define models with updated parameters
+    # Define models and their parameter grids
     models = {
-        'Random_Forest': RandomForestRegressor(random_state=42),
-        'Gradient_Boosting': GradientBoostingRegressor(random_state=42),
-        'Ridge_Regression': Ridge(),
-        'ElasticNet': ElasticNet(max_iter=10000),
-        'SVR': SVR(),
-        'Decision_Tree': DecisionTreeRegressor(random_state=42)
-    }
-
-    # Define parameter grids
-    param_grids = {
-        'Random_Forest': {
-            'n_estimators': [50, 100, 200],
-            'max_features': ['sqrt', 'log2'],
-            'max_depth': [8, 10, 12],
-            'min_samples_split': [5, 10, 15],
-            'min_samples_leaf': [1, 2, 4]
-        },
-        'Gradient_Boosting': {
+        'Random_Forest': (RandomForestRegressor(random_state=42), {
             'n_estimators': [100, 200, 300],
-            'learning_rate': [0.01, 0.05, 0.1],
-            'max_depth': [3, 4, 5],
+            'max_depth': [None, 10, 20, 30],
             'min_samples_split': [2, 5, 10],
-            'min_samples_leaf': [1, 2, 4],
-            'subsample': [0.8, 0.9, 1.0]
-        },
-        'Ridge_Regression': {'alpha': [0.1, 1.0, 10.0, 100.0]},
-        'ElasticNet': {'alpha': [0.1, 1.0, 10.0], 'l1_ratio': [0.1, 0.5, 0.9]},
-        'SVR': {'C': [0.1, 1, 10], 'epsilon': [0.1, 0.2, 0.5]},
-        'Decision_Tree': {'max_depth': [6, 8, 10], 'min_samples_split': [2, 5, 10], 'min_samples_leaf': [1, 2, 4]}
+            'min_samples_leaf': [1, 2, 4]
+        }),
+        'Gradient_Boosting': (GradientBoostingRegressor(random_state=42), {
+            'n_estimators': [100, 200, 300],
+            'learning_rate': [0.01, 0.1, 0.2],
+            'max_depth': [3, 4, 5]
+        }),
+        'Ridge_Regression': (Ridge(), {
+            'alpha': [0.1, 1.0, 10.0]
+        })
     }
 
-    # Train and evaluate models
     best_models = {}
     evaluations = {}
-    for name, model in models.items():
-        print(f"Training {name}...")
-        grid_search = GridSearchCV(estimator=model, param_grid=param_grids[name], cv=5, n_jobs=-1, scoring='neg_mean_squared_error')
+    feature_importances = {}
+
+    for name, (model, param_grid) in models.items():
+        if debug:
+            print(f"Debug: Training {name}...")
+        
+        grid_search = GridSearchCV(model, param_grid, cv=5, scoring='neg_mean_squared_error', n_jobs=-1)
         grid_search.fit(X_train_scaled, y_train)
-        best_models[name] = grid_search.best_estimator_
         
-        # Cross-validation
-        cv_scores = cross_val_score(best_models[name], X_train_scaled, y_train, cv=5, scoring='neg_mean_squared_error')
-        print(f"{name} - Best params: {grid_search.best_params_}")
-        print(f"{name} - Cross-validation MSE: {-cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+        best_model = grid_search.best_estimator_
+        best_models[name] = best_model
         
-        # Test set performance
-        y_pred = best_models[name].predict(X_test_scaled)
+        y_pred = best_model.predict(X_test_scaled)
         mse = mean_squared_error(y_test, y_pred)
         r2 = r2_score(y_test, y_pred)
-        print(f"{name} - Test MSE: {mse:.4f}, R²: {r2:.4f}")
         
-        evaluations[name] = {"MSE": mse, "R²": r2}
+        # Perform cross-validation for the best model
+        cv_scores = cross_val_score(best_model, X_train_scaled, y_train, cv=5, scoring='neg_mean_squared_error')
+        cv_mse = -cv_scores.mean()
         
+        evaluations[name] = {
+            "Test MSE": mse,
+            "Test R²": r2,
+            "CV MSE": cv_mse,
+            "Best Params": grid_search.best_params_
+        }
+        
+        if debug:
+            print(f"Debug: {name} - Test MSE: {mse:.4f}, R²: {r2:.4f}")
+            print(f"Debug: {name} - CV MSE: {cv_mse:.4f}")
+            print(f"Debug: {name} - Best Parameters: {grid_search.best_params_}")
+
         # Feature importance
-        if name in ['Random_Forest', 'Gradient_Boosting', 'Decision_Tree']:
-            importances = best_models[name].feature_importances_
-            feature_importance = pd.DataFrame({'feature': selected_features, 'importance': importances})
-            feature_importance = feature_importance.sort_values('importance', ascending=False)
-            print(f"\n{name} - Top 5 important features:")
-            print(feature_importance.head())
+        if hasattr(best_model, 'feature_importances_'):
+            importances = best_model.feature_importances_
         else:
-            perm_importance = permutation_importance(best_models[name], X_test_scaled, y_test, n_repeats=10, random_state=42)
-            feature_importance = pd.DataFrame({'feature': selected_features, 'importance': perm_importance.importances_mean})
-            feature_importance = feature_importance.sort_values('importance', ascending=False)
-            print(f"\n{name} - Top 5 important features (Permutation Importance):")
-            print(feature_importance.head())
+            importances = permutation_importance(best_model, X_test_scaled, y_test, n_repeats=10, random_state=42).importances_mean
+
+        feature_importances[name] = dict(zip(top_features, importances))
         
-        # Save the model
-        root_dir = get_project_root()
-        suffix = '_inflated' if use_inflated_data else ''
-        model_filename = os.path.join(root_dir, 'data', 'models', f'{name}_salary_prediction_model{suffix}.joblib')
-        joblib.dump(best_models[name], model_filename)
-        print(f"{name} model saved to '{model_filename}'")
+        if debug:
+            print(f"Debug: {name} - Top 5 important features:")
+            print(sorted(feature_importances[name].items(), key=lambda x: x[1], reverse=True)[:5])
 
     # Identify the best overall model
-    best_model_name = min(evaluations, key=lambda x: evaluations[x]['MSE'])
+    best_model_name = min(evaluations, key=lambda x: evaluations[x]['Test MSE'])
     best_model = best_models[best_model_name]
 
-    print(f"Best overall model: {best_model_name}")
+    if debug:
+        print(f"Debug: Best overall model: {best_model_name}")
 
-    # Save the scaler, selected features, and best model name
-    root_dir = get_project_root()
-    suffix = '_inflated' if use_inflated_data else ''
-    
-    scaler_filename = os.path.join(root_dir, 'data', 'models', f'scaler{suffix}.joblib')
-    joblib.dump(scaler, scaler_filename)
-    print(f"Scaler saved to '{scaler_filename}'")
-    
-    selected_features_filename = os.path.join(root_dir, 'data', 'models', f'selected_features{suffix}.joblib')
-    joblib.dump(selected_features, selected_features_filename)
-    print(f"Selected features saved to '{selected_features_filename}'")
-    
-    with open(os.path.join(root_dir, 'data', 'models', f'best_model_name{suffix}.txt'), 'w') as f:
-        f.write(best_model_name)
+    # Save only the best model and related information
+    save_models({best_model_name: best_model}, scaler, top_features, use_inflated_data)
 
-    return best_model_name, best_model, evaluations, selected_features, scaler, data[salary_cap_column].max()
+    return best_model_name, best_model, evaluations, top_features, scaler, data[salary_cap_column].max(), feature_importances
 
-if __name__ == "__main__":
-    print("Retraining models...")
-    best_model_name, best_model, evaluations, selected_features, scaler, max_salary_cap = retrain_and_save_models(use_inflated_data=False)
-    
-    print(f"\nBest model: {best_model_name}")
-    print("\nModel evaluations:")
-    for model, metrics in evaluations.items():
-        print(f"{model}:")
-        print(f"  MSE: {metrics['MSE']:.4f}")
-        print(f"  R²: {metrics['R²']:.4f}")
-    
-    print("\nSelected features:")
-    print(selected_features)
-    
-    print(f"\nMax salary cap: ${max_salary_cap:,.2f}")
+# Usage:
+best_model_name, best_model, evaluations, selected_features, scaler, max_salary_cap, feature_importances = retrain_and_save_models(use_inflated_data=False, debug=True)
+
+

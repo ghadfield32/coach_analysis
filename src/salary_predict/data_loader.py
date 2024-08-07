@@ -28,7 +28,7 @@ def get_project_root():
         
 def load_data(inflated=False):
     root_dir = get_project_root()
-    file_name = 'final_salary_data_with_yos_and_inflated_cap_2000_on.csv'
+    file_name = 'nba_player_data_final_inflated.csv'
     file_path = os.path.join(root_dir, 'data', 'processed', file_name)
     
     if not os.path.exists(file_path):
@@ -58,7 +58,11 @@ def load_data(inflated=False):
 
 def load_predictions(inflated=False, team=None):
     # Load the actual data
-    df_actual = load_data(inflated)
+    df_actual, salary_cap_column = load_data(inflated)
+    
+    print("Debug: df_actual shape:", df_actual.shape)
+    print("Debug: df_actual columns:", df_actual.columns)
+    print("Debug: Unique teams in df_actual:", df_actual['Team'].unique())
     
     # Load predictions
     root_dir = get_project_root()
@@ -82,9 +86,18 @@ def load_predictions(inflated=False, team=None):
     print("Debug: df_merged shape after merge:", df_merged.shape)
     print("Debug: df_merged columns after merge:", df_merged.columns)
     
-    # Drop the redundant 'Season' column and rename 'Predicted_Season'
-    df_merged = df_merged.drop(columns=['Season'])
-    df_merged = df_merged.rename(columns={'Predicted_Season': 'Season'})
+    # Handle the 'Season' columns
+    if 'Season_x' in df_merged.columns and 'Season_y' in df_merged.columns:
+        df_merged = df_merged.rename(columns={'Season_x': 'Original_Season', 'Season_y': 'Season'})
+    elif 'Season' in df_merged.columns and 'Predicted_Season' in df_merged.columns:
+        df_merged = df_merged.rename(columns={'Predicted_Season': 'Original_Season'})
+    
+    # Drop any duplicate columns
+    df_merged = df_merged.loc[:, ~df_merged.columns.duplicated()]
+    
+    print("Debug: df_merged columns after renaming:", df_merged.columns)
+    print("Debug: Sample of merged data:")
+    print(df_merged[['Player', 'Season', 'Team', 'Original_Season']].head())
     
     # Ensure all required columns are present
     required_columns = ['Player', 'Season', 'Team', 'Age', 'Predicted_Salary', 'Previous_Season_Salary', 'Salary_Change']
