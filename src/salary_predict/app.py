@@ -606,33 +606,48 @@ def main():
             
             predictions = load_predictions(use_inflated_data_trade)
             
+            st.write("Debug: Predictions DataFrame shape:", predictions.shape)
+            st.write("Debug: Predictions DataFrame columns:", predictions.columns)
+            
             if 'Team' not in predictions.columns:
                 st.error("The 'Team' column is missing from the predictions data. Please check your data loading process.")
+                st.write("Debug: Available columns:", predictions.columns)
             else:
+                st.write("Debug: 'Team' column exists in predictions DataFrame")
+                st.write("Debug: Unique teams:", predictions['Team'].unique())
+                st.write("Debug: Number of unique teams:", predictions['Team'].nunique())
+                
                 # Team filter
                 all_teams = sorted(predictions['Team'].unique())
-                team1 = st.selectbox("Select Team 1", all_teams, key="trade_analysis_team1")
-                team2 = st.selectbox("Select Team 2", all_teams, index=1, key="trade_analysis_team2")
+                st.write("Debug: all_teams list:", all_teams)
                 
-                predictions1 = predictions[predictions['Team'] == team1]
-                predictions2 = predictions[predictions['Team'] == team2]
-                
-                st.subheader(f"Available Players for {team1}")
-                st.write(predictions1[['Player', 'Age', 'Position', 'Previous_Season_Salary', 'Predicted_Salary', 'PTS', 'TRB', 'AST']])
-                
-                st.subheader(f"Available Players for {team2}")
-                st.write(predictions2[['Player', 'Age', 'Position', 'Previous_Season_Salary', 'Predicted_Salary', 'PTS', 'TRB', 'AST']])
-                
-                # Player selection
-                players1 = st.multiselect(f"Select players from {team1}", predictions1['Player'].unique(), key="trade_analysis_players1")
-                players2 = st.multiselect(f"Select players from {team2}", predictions2['Player'].unique(), key="trade_analysis_players2")
-                
-                if st.button("Analyze Trade", key="trade_analysis_button"):
-                    if not players1 or not players2:
-                        st.warning("Please select players from both teams.")
-                    else:
-                        combined_predictions = pd.concat([predictions1, predictions2])
-                        trade_analysis = analyze_trade(players1, players2, combined_predictions)
+                if len(all_teams) > 0:
+                    team1 = st.selectbox("Select Team 1", all_teams, key="trade_analysis_team1")
+                    team2 = st.selectbox("Select Team 2", all_teams, index=1, key="trade_analysis_team2")
+                    
+                    predictions1 = predictions[predictions['Team'] == team1]
+                    predictions2 = predictions[predictions['Team'] == team2]
+                    
+                    st.write(f"Debug: Number of players in {team1}:", len(predictions1))
+                    st.write(f"Debug: Number of players in {team2}:", len(predictions2))
+                    
+                    st.subheader(f"Available Players for {team1}")
+                    st.write(predictions1[['Player', 'Age', 'Previous_Season_Salary', 'Predicted_Salary', 'PTS', 'TRB', 'AST']])
+                    
+                    st.subheader(f"Available Players for {team2}")
+                    st.write(predictions2[['Player', 'Age', 'Previous_Season_Salary', 'Predicted_Salary', 'PTS', 'TRB', 'AST']])
+                    
+                    # Player selection
+                    players1 = st.multiselect(f"Select players from {team1}", predictions1['Player'].unique(), key="trade_analysis_players1")
+                    players2 = st.multiselect(f"Select players from {team2}", predictions2['Player'].unique(), key="trade_analysis_players2")
+                    
+                    if st.button("Analyze Trade", key="trade_analysis_button"):
+                        if not players1 or not players2:
+                            st.warning("Please select players from both teams.")
+                        else:
+                            combined_predictions = pd.concat([predictions1, predictions2])
+                            trade_analysis = analyze_trade(players1, players2, combined_predictions)
+                            
                         
                         st.subheader("Trade Impact")
                         
@@ -643,7 +658,7 @@ def main():
                             st.write(f"Salary Change: ${(data['salary_after'] - data['salary_before'])/1e6:.2f}M")
                             
                             st.write("\nPlayer Details:")
-                            st.write(data['players'][['Player', 'Age', 'Position', 'Previous_Season_Salary', 'Predicted_Salary', 'Salary_Change', 'PTS', 'TRB', 'AST', 'PER', 'WS', 'VORP']])
+                            st.write(data['players'][['Player', 'Age', 'Previous_Season_Salary', 'Predicted_Salary', 'Salary_Change', 'PTS', 'TRB', 'AST', 'PER', 'WS', 'VORP']])
                             
                             st.write("\nTeam Percentiles:")
                             for stat in RELEVANT_STATS:
@@ -668,15 +683,19 @@ def main():
                         fig = plot_trade_impact(trade_analysis, team1, team2)
                         st.pyplot(fig)
 
-        except FileNotFoundError as e:
-            st.error(f"Error: {str(e)}")
-            st.error("Please make sure the predictions file exists in the correct location.")
-        except KeyError as e:
-            st.error(f"Error: {str(e)}")
-            st.error("Please check your data files and ensure they contain all required columns.")
-        except Exception as e:
-            st.error(f"An unexpected error occurred: {str(e)}")
-            st.error("Please check the data and try again.")
+            else:
+                st.error("No teams found in the predictions data. Please check your data loading process.")
+
+    except FileNotFoundError as e:
+        st.error(f"Error: {str(e)}")
+        st.error("Please make sure the predictions file exists in the correct location.")
+    except KeyError as e:
+        st.error(f"Error: {str(e)}")
+        st.error("Please check your data files and ensure they contain all required columns.")
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {str(e)}")
+        st.error("Please check the data and try again.")
+        st.write("Debug: Exception details:", str(e))
 
 if __name__ == "__main__":
     main()
