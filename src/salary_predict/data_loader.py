@@ -86,6 +86,7 @@ def load_predictions(inflated=False, team=None):
     print("Debug: df_merged shape after merge:", df_merged.shape)
     print("Debug: df_merged columns after merge:", df_merged.columns)
     
+<<<<<<< HEAD
     # Handle the 'Season' columns
     if 'Season_x' in df_merged.columns and 'Season_y' in df_merged.columns:
         df_merged = df_merged.rename(columns={'Season_x': 'Original_Season', 'Season_y': 'Season'})
@@ -99,6 +100,12 @@ def load_predictions(inflated=False, team=None):
     print("Debug: Sample of merged data:")
     print(df_merged[['Player', 'Season', 'Team', 'Original_Season']].head())
     
+=======
+    # Drop the redundant 'Season' column and rename 'Predicted_Season'
+    df_merged = df_merged.drop(columns=['Season'])
+    df_merged = df_merged.rename(columns={'Predicted_Season': 'Season'})
+    
+>>>>>>> 31d3c5f5de7ea37db776e15667fae8c3cc4b3e1a
     # Ensure all required columns are present
     required_columns = ['Player', 'Season', 'Team', 'Age', 'Predicted_Salary', 'Previous_Season_Salary', 'Salary_Change']
     missing_columns = [col for col in required_columns if col not in df_merged.columns]
