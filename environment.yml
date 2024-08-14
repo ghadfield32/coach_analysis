@@ -24,6 +24,7 @@ dependencies:
   - tqdm
   - statsmodels
   - selenium
+  - tabulate
   - pip
   - pip:
     - nba_api
