@@ -6,13 +6,36 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
+import plotly.graph_objects as go
+from datetime import datetime
 
 # Import functions from other modules
 from data_loader_preprocessor import load_data, format_season, clean_data, engineer_features, encode_data
 from model_trainer import train_and_save_models, evaluate_models
 from model_predictor import predict
 from trade_utils import analyze_two_team_trade, get_champions
+from overall_team_trade_impact import (
+    fetch_season_data_by_year, get_champions, process_champion_team_data,
+    calculate_team_stats, calculate_post_trade_team_stats,
+    calculate_average_champion_stats, compare_team_performance,
+    trade_impact_simulator
+)
 
+
+@st.cache_data
+def load_team_data():
+    nba_teams = teams.get_teams()
+    team_df = pd.DataFrame(nba_teams)
+    return team_df[['id', 'full_name', 'abbreviation']]
+
+@st.cache_data
+def load_player_data(start_year, end_year):
+    player_data = pd.DataFrame()
+    for year in range(start_year, end_year + 1):
+        data = fetch_season_data_by_year(year)
+        if data is not None:
+            player_data = pd.concat([player_data, data], ignore_index=True)
+    return player_data
 
 def identify_overpaid_underpaid(predictions_df):
     # Adjust Predicted_Salary calculation
@@ -152,8 +175,8 @@ def main():
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Data Analysis", "Model Results", "Salary Evaluation", "Trade Analysis"])
-
+    page = st.sidebar.radio("Go to", ["Data Analysis", "Model Results", "Salary Evaluation", "Trade Analysis", "Trade Impact Simulator"])
+    
     # Load base data
     data = load_processed_data('data/processed/nba_player_data_final_inflated.csv')
 
@@ -308,6 +331,9 @@ def main():
         4. Distribution of top performers in various statistical categories
         5. Overpaid/Underpaid player analysis
         """)
+
+    elif page == "Trade Impact Simulator":
+        trade_impact_simulator()
 
 if __name__ == "__main__":
     main()
