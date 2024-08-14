@@ -1,6 +1,8 @@
+setuptools>=65.5.0
+wheel
 numpy
 pandas
-scikit-learn==1.1.3
+scikit-learn==1.3.0
 matplotlib
 seaborn
 jupyter
