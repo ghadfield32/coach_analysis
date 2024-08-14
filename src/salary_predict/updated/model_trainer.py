@@ -88,6 +88,27 @@ def evaluate_models(X_test, y_test, model_save_path):
         print(f"RMSE: {rmse}")
         print(f"MAE: {mae}")
         print(f"R-squared: {r2}")
+        
+def filter_seasons(data, predict_season):
+    """
+    Filters the dataset into prior seasons and the target season for prediction.
+
+    Args:
+        data (pd.DataFrame): The dataset containing season data.
+        predict_season (int): The season that you want to predict.
+
+    Returns:
+        tuple: A tuple containing two DataFrames:
+            - prior_seasons_data: Data for seasons before the predict_season.
+            - target_season_data: Data for the predict_season.
+    """
+    # Separate data into prior seasons and the target season
+    prior_seasons_data = data[data['Season'] < predict_season]
+    target_season_data = data[data['Season'] == predict_season]
+    
+    print(f"Data filtered. Prior seasons shape: {prior_seasons_data.shape}, Target season shape: {target_season_data.shape}")
+    
+    return target_season_data, prior_seasons_data
 
 # Data preprocessing
 def load_and_preprocess_data(file_path, predict_season):

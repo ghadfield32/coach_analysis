@@ -74,12 +74,13 @@ def encode_categorical(data, columns):
     # Encode categorical columns using one-hot encoding
     encoders = {}
     for col in columns:
-        encoder = OneHotEncoder(sparse=False, handle_unknown='ignore')
+        encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
         encoded = encoder.fit_transform(data[[col]])
         encoded_df = pd.DataFrame(encoded, columns=encoder.get_feature_names_out([col]), index=data.index)
         data = pd.concat([data.drop(col, axis=1), encoded_df], axis=1)
         encoders[col] = encoder
     return data, encoders
+
 
 def encode_data(data, encoders=None, player_encoder=None):
     print("Columns before encoding:", data.columns)
@@ -105,7 +106,7 @@ def encode_data(data, encoders=None, player_encoder=None):
     if encoders is None:
         encoders = {}
         for col in categorical_cols:
-            encoder = OneHotEncoder(sparse=False, handle_unknown='ignore')
+            encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')  # Updated line
             encoded = encoder.fit_transform(data[[col]])
             encoded_df = pd.DataFrame(encoded, columns=encoder.get_feature_names_out([col]), index=data.index)
             data = pd.concat([data.drop(col, axis=1), encoded_df], axis=1)
@@ -127,7 +128,6 @@ def encode_data(data, encoders=None, player_encoder=None):
     print("Columns after encoding:", data.columns)
 
     return data, risk_mapping, encoders, scaler, numeric_cols, player_encoder
-
 
 
 
