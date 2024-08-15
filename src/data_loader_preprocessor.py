@@ -186,7 +186,7 @@ def calculate_tree_feature_importance(X, y):
     return feature_importances
 
 if __name__ == "__main__":
-    file_path = 'data/processed/nba_player_data_final_inflated.csv'
+    file_path = '../data/processed/nba_player_data_final_inflated.csv'
     data = load_data(file_path)
     data = format_season(data)
     data = clean_data(data)

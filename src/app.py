@@ -9,6 +9,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
 import plotly.graph_objects as go
 from datetime import datetime
+from nba_api.stats.static import teams
 
 # Import functions from other modules
 from data_loader_preprocessor import load_data, format_season, clean_data, engineer_features, encode_data
@@ -17,6 +18,23 @@ from model_predictor import predict
 
 # Import functions from app_test_trade_impact.py
 from app_test_trade_impact import analyze_trade_impact, get_players_for_team
+
+#importing shot chart app functions
+from shot_chart.nba_helpers import get_team_abbreviation, categorize_shot
+from shot_chart.nba_shots import fetch_shots_data, fetch_defensive_shots_data
+from shot_chart.nba_plotting import plot_shot_chart_hexbin
+from shot_chart.nba_efficiency import calculate_efficiency, create_mae_table, save_mae_table, load_mae_table, get_seasons_range
+from shot_chart.shot_chart_main import preload_mae_tables, create_and_save_mae_table_specific, create_and_save_mae_table_all
+
+@st.cache_data
+def get_teams_list():
+    """Get the list of NBA teams."""
+    return [team['full_name'] for team in teams.get_teams()]
+
+@st.cache_data
+def get_players_list():
+    """Get the list of NBA players."""
+    return [player['full_name'] for player in players.get_players()]
 
 @st.cache_data
 def load_team_data():
@@ -88,50 +106,7 @@ def display_model_metrics(y_true, y_pred):
     col3.metric("Mean Absolute Error", f"{mae:.4f}")
     col4.metric("R-squared", f"{r2:.4f}")
 
-# Trade impact display function
-def display_trade_impact(result, team1, team2):
-    for team_abbr in [team1, team2]:
-        st.subheader(f"{team_abbr} Trade Impact")
-        
-        team_data = result[team_abbr]
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Current Salary", f"${team_data['current_salary']:,.2f}")
-        col2.metric("Salary After Trade", f"${team_data['new_salary']:,.2f}")
-        col3.metric("Salary Difference", f"${team_data['new_salary'] - team_data['current_salary']:,.2f}")
-        
-        st.subheader("Stat Comparisons")
-        
-        # Create a DataFrame for the main stat comparisons
-        comparison_data = []
-        for stat, values in team_data['comparison'].items():
-            comparison_data.append({
-                'Stat': stat,
-                'Current': f"{values['Current']:.2f} ({values['Current Percentile']:.1f}%ile)",
-                'After Trade': f"{values['After Trade']:.2f} ({values['After Trade Percentile']:.1f}%ile)",
-                'Champion Average': f"{values['Champ Average']:.2f}",
-                'League Average': f"{values['League Average']:.2f}",
-                'Change vs League': f"{values['After Trade vs League'] - values['Current vs League']:.2f}",
-                'Change vs Champ': f"{values['After Trade vs Champ'] - values['Current vs Champ']:.2f}"
-            })
-        comparison_df = pd.DataFrame(comparison_data)
-        st.table(comparison_df)
-        
-        st.subheader("Percentile Counts")
-        percentile_data = []
-        for stat, values in team_data['comparison'].items():
-            stat_data = {'Stat': stat}
-            for percentile in [99, 98, 97, 96, 95, 90, 75, 50]:
-                percentile_key = f"Top {100-percentile}%"
-                stat_data[f"Current {percentile_key}"] = values['Current Percentile Counts'][percentile_key]
-                stat_data[f"After Trade {percentile_key}"] = values['After Trade Percentile Counts'][percentile_key]
-                stat_data[f"Champion {percentile_key}"] = values['Champ Percentile Counts'][percentile_key]
-            percentile_data.append(stat_data)
-        
-        percentile_df = pd.DataFrame(percentile_data)
-        st.table(percentile_df)
-        
-        st.markdown("---")
+
 
 def display_overpaid_underpaid(predictions_df):
     st.subheader("Top 10 Overpaid and Underpaid Players")
@@ -163,38 +138,62 @@ def display_overpaid_underpaid(predictions_df):
         st.dataframe(underpaid[['Player', 'Team', 'Position', 'Salary', 'Predicted_Salary', 'Salary_Difference']])
 
 # Trade Impact Simulator function
+def display_trade_impact(results, team_a_name, team_b_name):
+    st.subheader(f"Percentile Counts Impact on {team_a_name}Compared to Average Champion Percentiles")
+    st.table(results['celtics_comparison_table'])
+
+    st.subheader(f"Percentile Counts Impact on {team_b_name} Compared to Average Champion Percentiles")
+    st.table(results['warriors_comparison_table'])
+
+    st.subheader("Pre vs Post Trade Impact")
+    st.table(results['overall_comparison'])
+
+    st.subheader("Salary Cap Clearance: (debug shows Salary cap vs Salary Help)")
+    st.write(results['trade_scenario_results'])
+
+
 def trade_impact_simulator():
     st.header("Trade Impact Simulator")
 
-    # Team selection
     teams = load_team_data()
     team_a_name = st.selectbox("Select Team A", teams['full_name'])
     team_b_name = st.selectbox("Select Team B", teams['full_name'][teams['full_name'] != team_a_name].tolist())
 
-    # Player selection
     players_from_team_a = st.multiselect(f"Select Players from {team_a_name}", get_players_for_team(team_a_name))
     players_from_team_b = st.multiselect(f"Select Players from {team_b_name}", get_players_for_team(team_b_name))
 
-    # Trade date input
     trade_date = st.date_input("Trade Date", value=pd.to_datetime("2023-12-20"))
 
-    # Percentile seasons selection
-    percentile_seasons = st.multiselect("Select Percentile Seasons", 
+    percentile_seasons = st.multiselect("Select Average Champion Comparison Percentiles Seasons (default: 10):", 
                                         ["2014-15", "2015-16", "2016-17", "2017-18", 
                                          "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24"],
-                                        default=["2022-23", "2023-24"])
+                                        default=["2014-15", "2015-16", "2016-17", "2017-18", 
+                                         "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24"])
 
     if st.button("Simulate Trade Impact"):
         if players_from_team_a and players_from_team_b:
             traded_players = {player: team_a_name for player in players_from_team_a}
             traded_players.update({player: team_b_name for player in players_from_team_b})
 
-            # Call the analysis function
-            analyze_trade_impact(traded_players, trade_date.strftime('%Y-%m-%d'), percentile_seasons)
+            # Call the analysis function and capture the results
+            results = analyze_trade_impact(traded_players, trade_date.strftime('%Y-%m-%d'), percentile_seasons, debug=True)
 
-            st.success("Trade Impact Simulation Completed")
+            if results:
+                # Display all results in the app
+                display_trade_impact(results, team_a_name, team_b_name)
+                
+                # Display debug output
+                st.subheader("Debug Information")
+                st.text_area("Detailed Debug Output", results['trade_scenario_debug'], height=300)
+
+                st.success("Trade Impact Simulation Completed")
+            else:
+                st.error("Trade impact analysis failed. Please check the inputs.")
         else:
             st.error("Please select players from both teams to simulate the trade impact.")
+
+
+
 
 # Main Streamlit app
 def main():
@@ -203,21 +202,21 @@ def main():
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Data Analysis", "Model Results", "Salary Evaluation", "Trade Analysis", "Trade Impact Simulator"])
-    
+    page = st.sidebar.radio("Go to", ["Data Analysis", "Model Results", "Salary Evaluation", "Trade Impact Simulator", "Shot Chart Analysis"])
+
     # Load base data
     print(os.getcwd())
-    data = load_processed_data('../../data/processed/nba_player_data_final_inflated.csv')
+    data = load_processed_data('data/processed/nba_player_data_final_inflated.csv')
 
     # Load existing predictions for 2023
-    initial_predictions_df = pd.read_csv('../../data/processed/predictions_df.csv')
+    initial_predictions_df = pd.read_csv('data/processed/predictions_df.csv')
 
     # Season selection
     seasons = sorted(data['Season'].unique(), reverse=True)
     selected_season = st.selectbox("Select Season", seasons)
 
     # Load models at the beginning of main()
-    model_save_path = '../../data/models'
+    model_save_path = 'data/models'
     rf_model = joblib.load(f"{model_save_path}/best_rf_model.pkl")
     xgb_model = joblib.load(f"{model_save_path}/best_xgb_model.pkl")
 
@@ -295,7 +294,19 @@ def main():
             'feature': model.feature_names_in_,
             'importance': model.feature_importances_
         }).sort_values('importance', ascending=False)
-        st.bar_chart(feature_importance.set_index('feature'))
+        print("Features used in the model:", model.feature_names_in_)  # Debug statement
+        print("Feature importance data:", feature_importance.head())  # Debug statement
+        # Filter out categorical variables (e.g., Position_ and Team_ columns)
+        filtered_feature_importance = feature_importance[
+            ~feature_importance['feature'].str.startswith('Team_') &
+            ~feature_importance['feature'].str.startswith('Position_') &
+            ~feature_importance['feature'].str.startswith('Injury_Risk')
+        ]
+
+        # Before plotting feature importance
+        print("Filtered features for plotting:", filtered_feature_importance['feature'].tolist())  # Debug statement
+        st.bar_chart(filtered_feature_importance.set_index('feature'))
+
 
         # Model explanation
         st.subheader("Model Explanation")
@@ -311,41 +322,15 @@ def main():
     elif page == "Salary Evaluation":
         st.header("Salary Evaluation")
         display_overpaid_underpaid(predictions_df)
-
-    elif page == "Trade Analysis":
-        st.header("Trade Analysis")
         st.write("""
-        Analyze potential trades and their impact on team statistics and salary cap.
-        For more information on trade rules, visit: [NBA Trade Rules](https://www.hoopsrumors.com/2023/09/salary-matching-rules-for-trades-during-2023-24-season.html)
+        Using the Predicted Salary and Salary based on that seasons stats we can get 
+        overpaid/underpaid players. We find the difference to find the biggest disparities to
+        hopefully uncover a couple finds that would be great for different teams.
         """)
-
-        # Team selection
-        teams = sorted(predictions_df['Team'].unique())
-        col1, col2 = st.columns(2)
-        with col1:
-            team1 = st.selectbox("Select Team 1", teams)
-        with col2:
-            team2 = st.selectbox("Select Team 2", teams, index=1)
-
-        # Player selection
-        team1_players = predictions_df[predictions_df['Team'] == team1]['Player'].tolist()
-        team2_players = predictions_df[predictions_df['Team'] == team2]['Player'].tolist()
-
-        col1, col2 = st.columns(2)
-        with col1:
-            players_leaving_team1 = st.multiselect(f"Select players leaving {team1}", team1_players)
-        with col2:
-            players_leaving_team2 = st.multiselect(f"Select players leaving {team2}", team2_players)
-
-        if st.button("Analyze Trade"):
-            champions = get_champions(selected_season - 10, selected_season - 1)
-            analyze_trade_impact(traded_players, trade_date, percentile_seasons)
-            
-            if result:
-                display_trade_impact(result, team1, team2)
-            else:
-                st.error("Trade analysis failed. Please check your selections.")
-
+        
+    elif page == "Trade Impact Simulator":
+        trade_impact_simulator()
+        
         # Trade analysis explanation
         st.subheader("Trade Analysis Explanation")
         st.write("""
@@ -357,9 +342,75 @@ def main():
         4. Distribution of top performers in various statistical categories
         5. Overpaid/Underpaid player analysis
         """)
+        
+    elif page == "Shot Chart Analysis":
+        st.header("Shot Analysis to find MAE against other teams or defense against other teams")
+        
+        analysis_type = st.selectbox("Select analysis type", options=["offensive", "defensive", "both"])
+        
+        entity_type = st.selectbox("Analyze a Team or Player?", options=["team", "player"])
+        
+        if entity_type == "team":
+            entity_name = st.selectbox("Select a Team", options=get_teams_list())
+        else:
+            entity_name = st.selectbox("Select a Player", options=get_players_list())
+        
+        season = st.selectbox("Select the season", options=["2023-24", "2022-23", "2021-22", "2020-21"])
+        
+        opponent_type = st.selectbox("Compare against all teams or a specific team?", options=["all", "specific"])
+        
+        opponent_name = None
+        if opponent_type == "specific":
+            opponent_name = st.selectbox("Select an Opponent Team", options=get_teams_list())
+        
+        if st.button("Run Analysis"):
+            # Preload MAE tables for all teams
+            mae_df_all = preload_mae_tables(entity_name, season)
+            
+            # Fetch and display offensive data
+            shots = fetch_shots_data(entity_name, entity_type == 'team', season, opponent_name)
+            st.write("Shot Data")
+            st.dataframe(shots.head())
+            
+            efficiency = calculate_efficiency(shots)
+            st.write(f"Offensive Efficiency for {entity_name}:")
+            st.dataframe(efficiency)
+            
+            # Plot shot chart
+            fig = plot_shot_chart_hexbin(shots, f'{entity_name} Shot Chart', opponent=opponent_name if opponent_name else "the rest of the league")
+            st.pyplot(fig)
+            
+            if opponent_type == 'specific':
+                # MAE calculation and saving for specific team
+                mae_df_specific = create_and_save_mae_table_specific(entity_name, season, opponent_name)
+                st.write(f"MAE Table for {entity_name} against {opponent_name}:")
+                st.dataframe(mae_df_specific)
+            else:
+                # MAE calculation and loading for all teams
+                st.write(f"MAE Table for {entity_name} against all teams:")
+                st.dataframe(mae_df_all)
+            
+            min_season, max_season = get_seasons_range(mae_df_all)
+            st.write(f"MAE Table available for seasons from {min_season} to {max_season}.")
+        
+            # If the analysis type is "both", also perform defensive analysis here
+            if analysis_type == 'both':
+                # Fetch and display defensive data for the specified team
+                defensive_shots = fetch_defensive_shots_data(entity_name, True, season, opponent_name)
+                defensive_efficiency = calculate_efficiency(defensive_shots)
+                st.write(f"Defensive Efficiency for {entity_name}:")
+                st.dataframe(defensive_efficiency)
+                
+                # Plot defensive shot chart
+                fig = plot_shot_chart_hexbin(defensive_shots, f'{entity_name} Defensive Shot Chart', opponent=opponent_name if opponent_name else "the rest of the league")
+                st.pyplot(fig)
+                
+                if opponent_type == 'specific':
+                    # MAE calculation for defensive analysis against the specific opponent
+                    mae_df_specific = create_and_save_mae_table_specific(entity_name, season, opponent_name)
+                    st.write(f"Defensive MAE Table for {entity_name} against {opponent_name}:")
+                    st.dataframe(mae_df_specific)
 
-    elif page == "Trade Impact Simulator":
-        trade_impact_simulator()
-
+        
 if __name__ == "__main__":
     main()

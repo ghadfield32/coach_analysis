@@ -18,13 +18,14 @@ ABOVE_29M_BONUS = 250_000 / SALARY_CAP_2023
 ABOVE_FIRST_APRON_MULTIPLIER = 1.10
 
 def check_salary_matching_rules(outgoing_salary, incoming_salary, team_salary_before_trade, salary_cap, first_tax_apron, debug=False):
+    debug_info = []
     if debug:
-        print(f"Debug: Checking salary matching rules:")
-        print(f"  Outgoing Salary: ${outgoing_salary:,.2f}")
-        print(f"  Incoming Salary: ${incoming_salary:,.2f}")
-        print(f"  Team Salary Before Trade: ${team_salary_before_trade:,.2f}")
-        print(f"  Salary Cap: ${salary_cap:,.2f}")
-        print(f"  First Tax Apron: ${first_tax_apron:,.2f}")
+        debug_info.append(f"Debug: Checking salary matching rules:")
+        debug_info.append(f"  Outgoing Salary: ${outgoing_salary:,.2f}")
+        debug_info.append(f"  Incoming Salary: ${incoming_salary:,.2f}")
+        debug_info.append(f"  Team Salary Before Trade: ${team_salary_before_trade:,.2f}")
+        debug_info.append(f"  Salary Cap: ${salary_cap:,.2f}")
+        debug_info.append(f"  First Tax Apron: ${first_tax_apron:,.2f}")
 
     if team_salary_before_trade < first_tax_apron:
         if outgoing_salary <= 7_500_000:
@@ -45,13 +46,15 @@ def check_salary_matching_rules(outgoing_salary, incoming_salary, team_salary_be
         percentage_limit = ABOVE_FIRST_APRON_MULTIPLIER
 
     if debug:
-        print(f"  Max Incoming Salary Allowed: ${max_incoming_salary:,.2f}")
-        print(f"  Rule Applied: {rule}")
-        print(f"  Percentage Limit: {percentage_limit:.2f}")
+        debug_info.append(f"  Max Incoming Salary Allowed: ${max_incoming_salary:,.2f}")
+        debug_info.append(f"  Rule Applied: {rule}")
+        debug_info.append(f"  Percentage Limit: {percentage_limit:.2f}")
 
-    return incoming_salary <= max_incoming_salary, max_incoming_salary, rule, percentage_limit
+    return incoming_salary <= max_incoming_salary, max_incoming_salary, rule, percentage_limit, "\n".join(debug_info)
 
 def analyze_trade_scenario(players1, players2, predictions_df, season, debug=False):
+    debug_info = []
+    
     # Filter the dataframe for the specified season
     season_data = predictions_df[predictions_df['Season'] == season]
 
@@ -60,21 +63,20 @@ def analyze_trade_scenario(players1, players2, predictions_df, season, debug=Fal
     teams2 = season_data[season_data['Player'].isin(players2)]['Team'].unique()
 
     if len(teams1) != 1 or len(teams2) != 1:
-        print(f"Error: All players in each list must be from the same team.")
-        return None
+        return None, "Error: All players in each list must be from the same team."
 
     team1 = teams1[0]
     team2 = teams2[0]
 
     if team1 == team2:
-        print(f"Error: The two teams involved in the trade must be different.")
-        return None
+        return None, "Error: The two teams involved in the trade must be different."
 
     # Calculate total salaries for each group of players
     outgoing_salary_team1 = season_data[season_data['Player'].isin(players1)]['Salary'].sum()
-    incoming_salary_team2 = season_data[season_data['Player'].isin(players2)]['Salary'].sum()
-    outgoing_salary_team2 = incoming_salary_team2  # outgoing from team2's perspective
-    incoming_salary_team1 = outgoing_salary_team1  # incoming from team1's perspective
+    incoming_salary_team1 = season_data[season_data['Player'].isin(players2)]['Salary'].sum()
+
+    outgoing_salary_team2 = season_data[season_data['Player'].isin(players2)]['Salary'].sum()
+    incoming_salary_team2 = season_data[season_data['Player'].isin(players1)]['Salary'].sum()
 
     # Check salary matching rules for both teams
     team1_salary_before_trade = season_data[season_data['Team'] == team1]['Salary'].sum()
@@ -84,40 +86,50 @@ def analyze_trade_scenario(players1, players2, predictions_df, season, debug=Fal
     team1_tax_apron_status = "Below" if team1_salary_before_trade < FIRST_TAX_APRON_2023 else "Above"
     team2_tax_apron_status = "Below" if team2_salary_before_trade < FIRST_TAX_APRON_2023 else "Above"
 
-    trade_works_for_team1, team1_max_incoming_salary, team1_rule, team1_percentage_limit = check_salary_matching_rules(
+    trade_works_for_team1, team1_max_incoming_salary, team1_rule, team1_percentage_limit, team1_debug = check_salary_matching_rules(
         outgoing_salary_team1, incoming_salary_team1, team1_salary_before_trade, SALARY_CAP_2023, FIRST_TAX_APRON_2023, debug
     )
-    trade_works_for_team2, team2_max_incoming_salary, team2_rule, team2_percentage_limit = check_salary_matching_rules(
+    trade_works_for_team2, team2_max_incoming_salary, team2_rule, team2_percentage_limit, team2_debug = check_salary_matching_rules(
         outgoing_salary_team2, incoming_salary_team2, team2_salary_before_trade, SALARY_CAP_2023, FIRST_TAX_APRON_2023, debug
     )
 
     if debug:
-        print("\nDebug: Trade Analysis Results:")
-        print(f"Team 1 ({team1}):")
-        print(f"  Total Outgoing Salary: ${outgoing_salary_team1:,.2f}")
-        print(f"  Max Incoming Salary Allowed: ${team1_max_incoming_salary:,.2f} (Rule: {team1_rule})")
-        print(f"  Percentage Limit: {team1_percentage_limit:.2f}")
-        print(f"Team 2 ({team2}):")
-        print(f"  Total Outgoing Salary: ${outgoing_salary_team2:,.2f}")
-        print(f"  Max Incoming Salary Allowed: ${team2_max_incoming_salary:,.2f} (Rule: {team2_rule})")
-        print(f"  Percentage Limit: {team2_percentage_limit:.2f}")
+        debug_info.append(team1_debug)
+        debug_info.append(team2_debug)
+        debug_info.append("\nDebug: Trade Analysis Results:")
+        debug_info.append(f"Team 1 ({team1}):")
+        debug_info.append(f"  Total Outgoing Salary: ${outgoing_salary_team1:,.2f}")
+        debug_info.append(f"  Max Incoming Salary Allowed: ${team1_max_incoming_salary:,.2f} (Rule: {team1_rule})")
+        debug_info.append(f"  Percentage Limit: {team1_percentage_limit:.2f}")
+        debug_info.append(f"Team 2 ({team2}):")
+        debug_info.append(f"  Total Outgoing Salary: ${outgoing_salary_team2:,.2f}")
+        debug_info.append(f"  Max Incoming Salary Allowed: ${team2_max_incoming_salary:,.2f} (Rule: {team2_rule})")
+        debug_info.append(f"  Percentage Limit: {team2_percentage_limit:.2f}")
 
-    print(f"Trade Works for Team 1: {'Yes' if trade_works_for_team1 else 'No'}")
+    trade_status = True
     if not trade_works_for_team1:
-        print(f"  Trade fails for Team 1 because incoming salary exceeds max allowed under rule: {team1_rule}")
-        print(f"  Team 1 is {team1_tax_apron_status} the First Tax Apron.")
-
-    print(f"Trade Works for Team 2: {'Yes' if trade_works_for_team2 else 'No'}")
-    if not trade_works_for_team2:
-        print(f"  Trade fails for Team 2 because incoming salary exceeds max allowed under rule: {team2_rule}")
-        print(f"  Team 2 is {team2_tax_apron_status} the First Tax Apron.")
-
-    if trade_works_for_team1 and trade_works_for_team2:
-        print("The trade is valid according to salary matching rules.")
+        debug_info.append(f"Trade Works for Team 1: No")
+        debug_info.append(f"  Trade fails for Team 1 because incoming salary exceeds max allowed under rule: {team1_rule}")
+        debug_info.append(f"  Team 1 is {team1_tax_apron_status} the First Tax Apron.")
+        trade_status = False
     else:
-        print("The trade does not satisfy salary matching rules.")
+        debug_info.append(f"Trade Works for Team 1: Yes")
 
-    return trade_works_for_team1 and trade_works_for_team2
+    if not trade_works_for_team2:
+        debug_info.append(f"Trade Works for Team 2: No")
+        debug_info.append(f"  Trade fails for Team 2 because incoming salary exceeds max allowed under rule: {team2_rule}")
+        debug_info.append(f"  Team 2 is {team2_tax_apron_status} the First Tax Apron.")
+        trade_status = False
+    else:
+        debug_info.append(f"Trade Works for Team 2: Yes")
+
+    if trade_status:
+        debug_info.append("The trade is valid according to salary matching rules.")
+    else:
+        debug_info.append("The trade does not satisfy salary matching rules.")
+
+    return trade_status, "\n".join(debug_info)
+
 
 if __name__ == "__main__":
     # Load the real predictions dataframe
@@ -130,4 +142,7 @@ if __name__ == "__main__":
     # Analyze the trade scenario for the specified season with debugging enabled
     season = 2023
     print(f"Analyzing trade for the {season} season:")
-    analyze_trade_scenario(players1, players2, predictions_df, season, debug=True)
+    results, debug_output = analyze_trade_scenario(players1, players2, predictions_df, season, debug=True)
+    print("results =",debug_output)
+    print("results =", results)
+

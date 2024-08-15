@@ -1,0 +1,6 @@
+load data into neo4j in node to edge format (cause and effect) and utilize this link:
+
+https://medium.com/neo4j/build-a-knowledge-graph-based-agent-with-llama-3-1-nvidia-nim-and-langchain-feb65788e637
+
+
+
