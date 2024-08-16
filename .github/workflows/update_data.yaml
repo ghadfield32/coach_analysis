@@ -7,7 +7,7 @@ on:
 
 jobs:
   update-data:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04  # Use a specific Ubuntu version
 
     steps:
     - name: Checkout repository
@@ -16,7 +16,7 @@ jobs:
     - name: Set up Python 3.12.5
       uses: actions/setup-python@v4
       with:
-        python-version: "3.12.5"
+        python-version: "3.12.5"  # Specify the full Python version
         architecture: "x64"  # This specifies the architecture
         cache: "pip"  # Caching pip dependencies for faster builds
 
