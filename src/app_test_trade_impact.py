@@ -37,6 +37,29 @@ def get_players_for_team(team_name, season="2023-24"):
     team_players = team_players[team_players['TEAM_ID'] == team_id]
     return sorted(team_players['PLAYER_NAME'].unique())
 
+def analyze_player_salaries(players, predictions_df):
+    """Analyze if the selected players are overpaid or underpaid based on predicted salaries."""
+    player_salary_analysis = []
+
+    for player in players:
+        player_data = predictions_df[predictions_df['Player'] == player]
+        if not player_data.empty:
+            actual_salary = player_data['Salary'].values[0]
+            salary_cap = player_data['Salary_Cap_Inflated'].values[0]
+            predicted_salary = player_data['Predicted_Salary'].values[0] * salary_cap
+            difference = actual_salary - predicted_salary
+            status = "Overpaid" if difference > 0 else "Underpaid" if difference < 0 else "Fairly Paid"
+            player_salary_analysis.append({
+                'Player': player,
+                'Actual Salary': actual_salary,
+                'Predicted Salary': predicted_salary,
+                'Difference': difference,
+                'Status': status
+            })
+
+    return pd.DataFrame(player_salary_analysis)
+
+
 # Main function to analyze trade impact
 def analyze_trade_impact(
     traded_players, 
@@ -78,12 +101,18 @@ def analyze_trade_impact(
     salary_check_season = overall_trade_end_year
     trade_scenario_results, trade_scenario_debug = analyze_trade_scenario(players_from_team_a, players_from_team_b, predictions_df, salary_check_season, debug=debug)
 
+    # Overpaid/Underpaid analysis
+    predictions_df = pd.read_csv('data/processed/predictions_df.csv')
+    all_players = list(traded_players.keys())
+    salary_analysis_df = analyze_player_salaries(all_players, predictions_df)
+
     return {
         'celtics_comparison_table': celtics_comparison_table,
         'warriors_comparison_table': warriors_comparison_table,
         'overall_comparison': comparison_table,
         'trade_scenario_results': trade_scenario_results,
-        'trade_scenario_debug': trade_scenario_debug  # Include debug output in the returned results
+        'trade_scenario_debug': trade_scenario_debug,
+        'salary_analysis': salary_analysis_df
     }
 
 if __name__ == "__main__":

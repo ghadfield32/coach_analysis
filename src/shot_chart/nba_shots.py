@@ -2,9 +2,46 @@
 import pandas as pd
 from nba_api.stats.endpoints import shotchartdetail
 from nba_api.stats.static import players, teams
+from sklearn.metrics import mean_absolute_error
+import matplotlib.pyplot as plt
+
+from shot_chart.nba_helpers import categorize_shot
+from shot_chart.nba_plotting import plot_shot_chart_hexbin
 from shot_chart.nba_helpers import get_team_abbreviation
 
-def fetch_shots_data(name, is_team, season, opponent_team=None, opponent_player=None, game_date=None):
+
+def fetch_shots_for_multiple_players(player_names, season, court_areas=None, opponent_name=None, debug=False):
+    from shot_chart.nba_efficiency import calculate_efficiency
+    """Fetch shots data for multiple players with an option to filter by court areas and an opponent team."""
+    player_shots = {}
+    for player_name in player_names:
+        print(f"Fetching shots for {player_name}")
+        shots = fetch_shots_data(player_name, is_team=False, season=season, opponent_team=opponent_name)
+        
+        # Apply the categorize_shot function to generate 'Area' and 'Distance' columns
+        shots['Area'], shots['Distance'] = zip(*shots.apply(lambda row: categorize_shot(row, debug=debug), axis=1))
+        
+        # If court_areas is provided and not set to 'all', filter the shots data
+        if court_areas and court_areas != 'all':
+            shots = shots[shots['Area'].isin(court_areas)]
+        
+        efficiency = calculate_efficiency(shots)
+        player_shots[player_name] = {
+            'shots': shots,
+            'efficiency': efficiency
+        }
+        
+        # Plot shot chart for each player
+        fig = plot_shot_chart_hexbin(shots, f'{player_name} Shot Chart', opponent=opponent_name if opponent_name else "the rest of the league")
+        plt.show()
+        
+        # Print efficiency summary for each player
+        print(f"Efficiency for {player_name}:")
+        print(efficiency)
+        
+    return player_shots
+
+def fetch_shots_data(name, is_team, season, opponent_team=None, opponent_player=None, game_date=None, debug=False):
     """Fetches shots data for a team or player for a given season with optional filters."""
     if is_team:
         team_dictionary = teams.get_teams()
@@ -43,7 +80,8 @@ def fetch_shots_data(name, is_team, season, opponent_team=None, opponent_player=
     
     data = shotchart.get_data_frames()[0]
 
-    if opponent_team:
+    # Handle the case where opponent_team is "all"
+    if opponent_team and opponent_team.lower() != "all":
         opponent_abbreviation = get_team_abbreviation(opponent_team)
         data = data[(data['HTM'] == opponent_abbreviation) | (data['VTM'] == opponent_abbreviation)]
     
@@ -57,9 +95,13 @@ def fetch_shots_data(name, is_team, season, opponent_team=None, opponent_player=
     if game_date:
         data = data[data['GAME_DATE'] == game_date.replace('-', '')]
 
+    # Apply the categorize_shot function with the debug parameter
+    data['Area'], data['Distance'] = zip(*data.apply(lambda row: categorize_shot(row, debug=debug), axis=1))
+
     return data
 
-def fetch_defensive_shots_data(name, is_team, season, opponent_team=None, opponent_player=None, game_date=None):
+
+def fetch_defensive_shots_data(name, is_team, season, opponent_team=None, opponent_player=None, game_date=None, debug=False):
     """Fetches defensive shots data for a team or player for a given season with optional filters."""
     if is_team:
         team_abbr = get_team_abbreviation(name)
@@ -109,5 +151,8 @@ def fetch_defensive_shots_data(name, is_team, season, opponent_team=None, oppone
 
     if game_date:
         defensive_shots = defensive_shots[defensive_shots['GAME_DATE'] == game_date.replace('-', '')]
+
+    # Apply the categorize_shot function with the debug parameter
+    defensive_shots['Area'], defensive_shots['Distance'] = zip(*defensive_shots.apply(lambda row: categorize_shot(row, debug=debug), axis=1))
 
     return defensive_shots
