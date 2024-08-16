@@ -23,7 +23,7 @@ jobs:
       run: pip install -r requirements.txt
 
     - name: Build dataset
-      run: python src/data_loader_preprocessor.py  # Replace with the actual script that builds your dataset
+      run: python src/salary_predict/data_loader_preprocessor.py  # Replace with the actual script that builds your dataset
 
     - name: Commit and push changes
       run: |
