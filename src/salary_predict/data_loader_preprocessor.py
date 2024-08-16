@@ -1,39 +1,53 @@
 
 import pandas as pd
 import numpy as np
+import logging
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
 from sklearn.feature_selection import f_regression, SelectKBest
 from sklearn.ensemble import RandomForestRegressor
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def load_data(file_path):
-    data = pd.read_csv(file_path)
-    print("Data loaded. Shape:", data.shape)
-    return data
+    try:
+        data = pd.read_csv(file_path)
+        logger.info(f"Data loaded. Shape: {data.shape}")
+        return data
+    except Exception as e:
+        logger.error(f"Failed to load data from {file_path}: {e}")
+        raise
 
 def format_season(data):
-    # Convert season format to a single year for easier numerical analysis
-    data['Season'] = data['Season'].apply(lambda x: int(x.split('-')[0]))
-    print("Seasons in data:", data['Season'].unique())
-    return data
+    try:
+        data['Season'] = data['Season'].apply(lambda x: int(x.split('-')[0]))
+        logger.info(f"Seasons in data: {data['Season'].unique()}")
+        return data
+    except Exception as e:
+        logger.error(f"Failed to format season data: {e}")
+        raise
 
 def clean_data(data):
-    # Drop columns that may not contribute significantly to the model
-    data_clean = data.copy()
-    columns_to_drop = ['Injury_Periods', '2nd Apron', 'Wins', 'Losses']
-    data_clean.drop(columns_to_drop, axis=1, errors='ignore', inplace=True)
-    
-    # Handle missing percentage data by filling with column mean
-    percentage_cols = ['3P%', '2P%', 'FT%', 'TS%']
-    for col in percentage_cols:
-        if col in data_clean.columns:
-            data_clean[col] = data_clean[col].fillna(data_clean[col].mean())
-    
-    # Drop remaining NaNs
-    data_clean = data_clean.dropna()
-    print("Data cleaned. Remaining shape:", data_clean.shape)
-    return data_clean
+    try:
+        data_clean = data.copy()
+        columns_to_drop = ['Injury_Periods', '2nd Apron', 'Wins', 'Losses']
+        data_clean.drop(columns_to_drop, axis=1, errors='ignore', inplace=True)
+        
+        percentage_cols = ['3P%', '2P%', 'FT%', 'TS%']
+        for col in percentage_cols:
+            if col in data_clean.columns:
+                data_clean[col] = data_clean[col].fillna(data_clean[col].mean())
+        
+        data_clean = data_clean.dropna()
+        logger.info(f"Data cleaned. Remaining shape: {data_clean.shape}")
+        return data_clean
+    except Exception as e:
+        logger.error(f"Failed to clean data: {e}")
+        raise
 
 def engineer_features(data):
     # Calculate per-game statistics to normalize performance data
@@ -186,40 +200,48 @@ def calculate_tree_feature_importance(X, y):
     return feature_importances
 
 if __name__ == "__main__":
-    file_path = 'data/processed/nba_player_data_final_inflated.csv'
-    data = load_data(file_path)
-    data = format_season(data)
-    data = clean_data(data)
-    data = engineer_features(data)
+    try:
+        file_path = '../data/processed/nba_player_data_final_inflated.csv'
+        data = load_data(file_path)
+        data = format_season(data)
+        data = clean_data(data)
+        data = engineer_features(data)
 
-    # Separate features and target
-    X = data.drop(['SalaryPct', 'Salary'], axis=1)
-    y = data['SalaryPct']
+        # Separate features and target
+        X = data.drop(['SalaryPct', 'Salary'], axis=1)
+        y = data['SalaryPct']
 
-    # Encode data
-    encoded_data, injury_risk_mapping, encoders, scaler, numeric_cols, player_encoder = encode_data(X)
+        # Encode data
+        encoded_data, injury_risk_mapping, encoders, scaler, numeric_cols, player_encoder = encode_data(X)
+        
+        logger.info("Data preprocessing completed. Ready for model training.")
+        
 
-    print("\nInjury Risk Mapping:", injury_risk_mapping)
-    print("Encoded Injury Risk range:", encoded_data['Injury_Risk'].min(), "-", encoded_data['Injury_Risk'].max())
-    print("\nNumeric columns for scaling:", numeric_cols)
+        print("\nInjury Risk Mapping:", injury_risk_mapping)
+        print("Encoded Injury Risk range:", encoded_data['Injury_Risk'].min(), "-", encoded_data['Injury_Risk'].max())
+        print("\nNumeric columns for scaling:", numeric_cols)
 
-    # Calculate feature importance
-    feature_importances = calculate_tree_feature_importance(encoded_data, y)
-    print("\nTree-based feature importances:")
-    print(feature_importances.head(20))
+        # Calculate feature importance
+        feature_importances = calculate_tree_feature_importance(encoded_data, y)
+        print("\nTree-based feature importances:")
+        print(feature_importances.head(20))
 
-    # Select top features
-    top_features = select_top_features(encoded_data, y)
-    print("\nTop features selected using statistical methods:", top_features)
+        # Select top features
+        top_features = select_top_features(encoded_data, y)
+        print("\nTop features selected using statistical methods:", top_features)
 
-    # Decoding example
-    print("\nDecoding Example:")
-    decoded_data = decode_data(encoded_data, injury_risk_mapping, encoders, scaler, numeric_cols, player_encoder)
-    
-    print("\nFirst few rows of decoded data:")
-    print(decoded_data[['Player', 'Injury_Risk', 'Position', 'Team', 'Season'] + top_features].head())
+        # Decoding example
+        print("\nDecoding Example:")
+        decoded_data = decode_data(encoded_data, injury_risk_mapping, encoders, scaler, numeric_cols, player_encoder)
+        
+        print("\nFirst few rows of decoded data:")
+        print(decoded_data[['Player', 'Injury_Risk', 'Position', 'Team', 'Season'] + top_features].head())
 
-    print("\nData types after decoding:")
-    print(decoded_data.dtypes)
+        print("\nData types after decoding:")
+        print(decoded_data.dtypes)
 
-    print("\nData preprocessing completed. Ready for model training.")
+        print("\nData preprocessing completed. Ready for model training.")
+        
+    except Exception as e:
+        logger.critical(f"Critical error in data processing pipeline: {e}")
+        raise
