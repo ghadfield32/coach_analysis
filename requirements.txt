@@ -1,6 +1,3 @@
-# Python version
-python==3.10
-
 # Conda packages converted to pip
 numpy
 pandas
