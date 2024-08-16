@@ -133,7 +133,7 @@ def analyze_trade_scenario(players1, players2, predictions_df, season, debug=Fal
 
 if __name__ == "__main__":
     # Load the real predictions dataframe
-    predictions_df = pd.read_csv('../data/processed/predictions_df.csv')
+    predictions_df = pd.read_csv('data/processed/predictions_df.csv')
 
     # Specify two lists of players for the trade scenario
     players1 = ["Anthony Davis", "LeBron James"]
