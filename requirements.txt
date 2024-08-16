@@ -1,0 +1,38 @@
+# Python version
+python==3.10
+
+# Conda packages converted to pip
+numpy
+pandas
+scikit-learn
+joblib
+matplotlib
+seaborn
+jupyter
+jupyterlab
+ipykernel
+pytest
+black
+flake8
+mypy
+dash
+dash-bootstrap-components
+plotly
+opencv-python-headless
+pillow
+tqdm
+statsmodels
+selenium
+
+# Pip-only dependencies
+nba_api
+requests
+streamlit
+xgboost
+lightgbm
+shap
+beautifulsoup4
+cpi
+lxml
+IPython
+tabulate
