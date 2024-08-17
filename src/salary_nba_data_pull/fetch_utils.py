@@ -46,9 +46,21 @@ def fetch_all_players(season, debug=False):
                 'player_id': player_id,
                 'team_id': team_id
             }
+            if debug:
+                print(f"Added player to all_players: {player_name} (ID: {player_id}, Team ID: {team_id})")
+    else:
+        if debug:
+            print("Failed to retrieve any player data from commonallplayers endpoint.")
+
     if debug:
-        logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetched {len(all_players)} players for season {season}")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetched {len(all_players)} players for season {season}")
+        # List some of the fetched players to verify the contents
+        for i, (name, details) in enumerate(all_players.items()):
+            if i < 5:  # Only print the first 5 players for brevity
+                print(f"Player: {name}, Details: {details}")
+
     return all_players
+
 
 
 def fetch_player_info(player_id, debug=False):

@@ -45,18 +45,25 @@ def calculate_percentages(df, debug=False):
     return df
 
 def process_player_data(player, season, all_players, debug=False):
-    if player.lower() not in all_players:
+    player_lower = player.lower()
+    if player_lower not in all_players:
         if debug:
-            print(f"No player ID found for {player}")
+            print(f"No player ID found for {player} in all_players. Player might be missing or the name format might differ.")
+        # Print the first few keys from all_players to check name formatting
+        if debug:
+            print(f"First few player names in all_players: {list(all_players.keys())[:5]}")
         return None
 
-    player_id = all_players[player.lower()]['player_id']
-    team_id = all_players[player.lower()]['team_id']
-    
+    player_id = all_players[player_lower]['player_id']
+    team_id = all_players[player_lower]['team_id']
+
+    if debug:
+        print(f"Processing data for player: {player} (ID: {player_id}, Team ID: {team_id})")
+
     player_info = fetch_player_info(player_id, debug=debug)
     career_stats = fetch_career_stats(player_id, debug=debug)
     league_standings = fetch_league_standings(season, debug=debug)
-    
+
     # Scrape advanced metrics from Basketball Reference
     advanced_metrics = scrape_advanced_metrics(player, season, debug=debug)
 
@@ -92,6 +99,7 @@ def process_player_data(player, season, all_players, debug=False):
     if debug:
         print(f"Processed data for {player} in season {season}: {player_stats}")
     return player_stats
+
 
 def calculate_player_stats(stats, player_info, years_of_service, team_id, league_standings, advanced_metrics):
     fg = stats.get('FGM', 0) or 0
