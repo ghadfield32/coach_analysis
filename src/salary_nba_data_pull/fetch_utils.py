@@ -15,6 +15,12 @@ def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, max_delay=120, ti
             if debug:
                 logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetching data using {endpoint.__name__} (Attempt {attempt + 1}) with parameters: {kwargs}")
             data = endpoint(**kwargs, timeout=timeout).get_data_frames()
+
+            if debug and len(data) == 0:
+                print(f"Warning: No data returned from {endpoint.__name__}.")
+            if debug:
+                print(f"Raw API Response: {endpoint(**kwargs, timeout=timeout).get_json()}")
+                
             time.sleep(DELAY_BETWEEN_REQUESTS)  # Add delay between requests
             elapsed_time = time.time() - start_time
             if debug:
@@ -33,6 +39,7 @@ def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, max_delay=120, ti
             if debug:
                 logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Retrying in {delay} seconds...")
             time.sleep(delay)
+
 
 def fetch_all_players(season, debug=False):
     all_players_data = fetch_with_retry(commonallplayers.CommonAllPlayers, season=season, debug=debug)
