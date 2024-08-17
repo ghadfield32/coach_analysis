@@ -20,10 +20,11 @@ jobs:
         python-version: "3.10"
 
     - name: Install dependencies
-      run: pip install -r requirements.txt
+      run: |
+        pip install -r requirements.txt
 
-    - name: Build dataset
-      run: python src/salary_predict/data_loader_preprocessor.py  # Replace with the actual script that builds your dataset
+    - name: Run data update script
+      run: python src/main.py --debug --start_year 2018 --end_year 2019
 
     - name: Check for changes
       id: check_changes
