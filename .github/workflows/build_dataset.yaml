@@ -32,7 +32,8 @@ jobs:
         echo "end_year=$current_year" >> $GITHUB_ENV
 
     - name: Run data update script
-      run: python src/salary_nba_data_pull/main.py --debug --start_year ${{ env.start_year }} --end_year ${{ env.end_year }}
+      #run: python src/salary_nba_data_pull/main.py --debug --start_year ${{ env.start_year }} --end_year ${{ env.end_year }}
+      run: python src/tester_pull.py
 
     - name: Check for changes
       id: check_changes
