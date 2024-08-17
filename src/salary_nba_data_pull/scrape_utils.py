@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from io import StringIO
 import time
+import os
 
 def scrape_salary_cap_history(debug=False):
     url = "https://basketball.realgm.com/nba/info/salary_cap"
@@ -181,15 +182,20 @@ def scrape_advanced_metrics(player_name, season, debug=False, max_retries=3, ret
         print(f"Failed to scrape advanced metrics for {player_name} after {max_retries} attempts")
     return {}
 
-def load_injury_data(file_path='../../data/processed/NBA Player Injury Stats(1951 - 2023).csv'):
+def load_injury_data(file_path=None):
+    if file_path is None:
+        # Construct the path relative to the script's directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(base_dir, '../../data/processed/NBA Player Injury Stats(1951 - 2023).csv')
+
     try:
         injury_data = pd.read_csv(file_path)
         injury_data['Date'] = pd.to_datetime(injury_data['Date'])
         injury_data['Season'] = injury_data['Date'].apply(lambda x: f"{x.year}-{str(x.year+1)[-2:]}" if x.month >= 10 else f"{x.year-1}-{str(x.year)[-2:]}")
-        print("Injury data loaded successfully")
+        print(f"Injury data loaded successfully from {file_path}")
         return injury_data
     except FileNotFoundError:
-        print("Injury data file not found. Proceeding without injury data.")
+        print(f"Injury data file not found at {file_path}. Proceeding without injury data.")
         return None
 
 def merge_injury_data(player_data, injury_data):
@@ -265,6 +271,10 @@ if __name__ == "__main__":
     
     print("\n5. Testing load_injury_data and merge_injury_data:")
     injury_data = load_injury_data()
+    if injury_data is not None:
+        print(data.head())
+    else:
+        print("No injury data loaded.")
     if not player_salary_data.empty and injury_data is not None:
         merged_data = merge_injury_data(player_salary_data, injury_data)
         print("Merged data with injury info:")

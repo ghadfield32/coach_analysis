@@ -71,6 +71,13 @@ def update_data(existing_data, start_year, end_year, player_filter=None, min_avg
 
         new_data = pd.concat([new_data, merged_data], ignore_index=True, sort=False)
 
+    # Check if 'Season' column exists before sorting
+    if 'Season' not in new_data.columns:
+        if debug:
+            print("Error: 'Season' column is missing in new_data before sorting.")
+            print(f"Columns in new_data: {new_data.columns.tolist()}")
+        raise KeyError("'Season' column is missing in new_data before sorting.")
+
     # Remove existing data for the players and seasons we just updated
     if not all_data.empty and not new_data.empty:
         all_data = all_data[~((all_data['Season'].isin(new_data['Season'])) & 
@@ -93,6 +100,7 @@ def update_data(existing_data, start_year, end_year, player_filter=None, min_avg
         print(f"Columns: {all_data.columns.tolist()}")
 
     return all_data
+
 
 def get_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
