@@ -8,19 +8,20 @@ import time
 # Define constants
 SEASON = "2022-23"
 DEBUG = True
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 INITIAL_DELAY = 5
+TIMEOUT = 60  # Increased timeout to 60 seconds
 
 # Function to fetch data with retry logic
-def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, debug=False, **kwargs):
+def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, timeout=60, debug=False, **kwargs):
     for attempt in range(max_retries):
         try:
             if debug:
                 logging.debug(f"Fetching data using {endpoint.__name__} (Attempt {attempt + 1}) with parameters: {kwargs}")
-            data = endpoint(**kwargs).get_data_frames()
+            data = endpoint(timeout=timeout, **kwargs).get_data_frames()
 
             if debug:
-                logging.debug(f"Raw API Response: {endpoint(**kwargs).get_json()}")
+                logging.debug(f"Raw API Response: {endpoint(timeout=timeout, **kwargs).get_json()}")
 
             return data[0] if isinstance(data, list) else data
         except (RequestException, JSONDecodeError, KeyError) as e:
@@ -30,11 +31,13 @@ def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, debug=False, **kw
                 if debug:
                     logging.debug(f"Failed after {max_retries} attempts")
                 return None
-            time.sleep(initial_delay * (2 ** attempt))
+            backoff_time = initial_delay * (2 ** attempt)
+            logging.debug(f"Retrying in {backoff_time} seconds...")
+            time.sleep(backoff_time)
 
 # Function to fetch all players for a season
 def fetch_all_players(season, debug=False):
-    all_players_data = fetch_with_retry(commonallplayers.CommonAllPlayers, season=season, debug=debug)
+    all_players_data = fetch_with_retry(commonallplayers.CommonAllPlayers, season=season, timeout=TIMEOUT, debug=debug)
     if all_players_data is not None and not all_players_data.empty:
         logging.debug(f"Fetched {len(all_players_data)} players for season {season}")
         print(all_players_data.head())
