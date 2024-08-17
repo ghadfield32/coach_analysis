@@ -24,7 +24,7 @@ jobs:
         pip install -r requirements.txt
 
     - name: Run data update script
-      run: python src/main.py --debug --start_year 2018 --end_year 2019
+      run: python src/salary_nba_data_pull/main.py --debug --start_year 2018 --end_year 2019
 
     - name: Check for changes
       id: check_changes
