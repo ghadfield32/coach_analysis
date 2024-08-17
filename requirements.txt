@@ -4,3 +4,7 @@ scikit-learn
 joblib
 matplotlib
 seaborn
+cpi
+nba-api
+beautifulsoup4
+requests
