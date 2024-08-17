@@ -2,29 +2,36 @@ import time
 from nba_api.stats.endpoints import commonallplayers, commonplayerinfo, playercareerstats, leaguestandings
 from requests.exceptions import RequestException
 from json.decoder import JSONDecodeError
+import logging
 
 # Define the maximum requests allowed per minute and delay between requests
 MAX_REQUESTS_PER_MINUTE = 20
 DELAY_BETWEEN_REQUESTS = 3  # seconds
 
-def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, max_delay=120, timeout=60, debug=False, **kwargs):
+def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, max_delay=120, timeout=120, debug=False, **kwargs):
     for attempt in range(max_retries):
+        start_time = time.time()
         try:
             if debug:
-                print(f"Fetching data using {endpoint.__name__} (Attempt {attempt + 1}) with parameters: {kwargs}")
+                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetching data using {endpoint.__name__} (Attempt {attempt + 1}) with parameters: {kwargs}")
             data = endpoint(**kwargs, timeout=timeout).get_data_frames()
             time.sleep(DELAY_BETWEEN_REQUESTS)  # Add delay between requests
+            elapsed_time = time.time() - start_time
+            if debug:
+                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Successfully fetched data using {endpoint.__name__} in {elapsed_time:.2f} seconds")
             return data[0] if isinstance(data, list) else data
         except (RequestException, JSONDecodeError, KeyError) as e:
+            elapsed_time = time.time() - start_time
             if debug:
-                print(f"Error occurred during fetching {endpoint.__name__}: {e}")
+                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error occurred during fetching {endpoint.__name__}: {e}")
+                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Time taken for attempt {attempt + 1}: {elapsed_time:.2f} seconds")
             if attempt == max_retries - 1:
                 if debug:
-                    print(f"Failed to fetch data from {endpoint.__name__} after {max_retries} attempts")
+                    logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Failed to fetch data from {endpoint.__name__} after {max_retries} attempts")
                 return None
             delay = min(initial_delay * (2 ** attempt), max_delay)
             if debug:
-                print(f"Retrying in {delay} seconds...")
+                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Retrying in {delay} seconds...")
             time.sleep(delay)
 
 def fetch_all_players(season, debug=False):
@@ -40,7 +47,7 @@ def fetch_all_players(season, debug=False):
                 'team_id': team_id
             }
     if debug:
-        print(f"Fetched {len(all_players)} players for season {season}")
+        logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetched {len(all_players)} players for season {season}")
     return all_players
 
 
