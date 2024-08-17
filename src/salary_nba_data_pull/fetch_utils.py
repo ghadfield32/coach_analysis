@@ -7,7 +7,7 @@ from json.decoder import JSONDecodeError
 MAX_REQUESTS_PER_MINUTE = 20
 DELAY_BETWEEN_REQUESTS = 3  # seconds
 
-def fetch_with_retry(endpoint, max_retries=10, initial_delay=5, max_delay=60, timeout=60, debug=False, **kwargs):
+def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, max_delay=120, timeout=60, debug=False, **kwargs):
     for attempt in range(max_retries):
         try:
             if debug:
@@ -42,6 +42,7 @@ def fetch_all_players(season, debug=False):
     if debug:
         print(f"Fetched {len(all_players)} players for season {season}")
     return all_players
+
 
 def fetch_player_info(player_id, debug=False):
     return fetch_with_retry(commonplayerinfo.CommonPlayerInfo, player_id=player_id, debug=debug)
