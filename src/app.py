@@ -12,9 +12,9 @@ from datetime import datetime
 from nba_api.stats.static import teams, players
 
 # Import functions from other modules
-from data_loader_preprocessor import load_data, format_season, clean_data, engineer_features, encode_data
-from model_trainer import train_and_save_models, evaluate_models
-from model_predictor import predict
+from salary_predict.data_loader_preprocessor import load_data, format_season, clean_data, engineer_features, encode_data
+from salary_predict.model_trainer import train_and_save_models, evaluate_models
+from salary_predict.model_predictor import predict
 
 # Import functions from app_test_trade_impact.py
 from app_test_trade_impact import analyze_trade_impact, get_players_for_team
