@@ -81,7 +81,7 @@ def engineer_features(data):
 def encode_injury_risk(data):
     # Encode injury risk levels for model training
     risk_mapping = {'Low': 0, 'Medium': 1, 'High': 2}
-    data['Injury_Risk'] = data['Injury_Risk'].map(risk_mapping).fillna(1)  # Default to Medium if unknown
+    data['Injury_Risk'] = data['Injury_Risk'].map(risk_mapping).fillna(0)  # Default to Low if unknown
     return data, risk_mapping
 
 def encode_categorical(data, columns):
@@ -101,7 +101,7 @@ def encode_data(data, encoders=None, player_encoder=None):
 
     # Encode Injury_Risk
     risk_mapping = {'Low': 0, 'Medium': 1, 'High': 2}
-    data['Injury_Risk'] = data['Injury_Risk'].map(risk_mapping).fillna(1)  # Default to Medium if unknown
+    data['Injury_Risk'] = data['Injury_Risk'].map(risk_mapping).fillna(0)  # Default to Low if unknown
 
     # Encode Player column if it's present
     if 'Player' in data.columns:
