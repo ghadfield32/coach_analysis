@@ -6,11 +6,11 @@ from json.decoder import JSONDecodeError
 import time
 
 # Define constants
-SEASON = "2022-23"
+SEASON = "2023-24"
 DEBUG = True
 MAX_RETRIES = 5
 INITIAL_DELAY = 5
-TIMEOUT = 60  # Increased timeout to 60 seconds
+TIMEOUT = 120
 
 # Function to fetch data with retry logic
 def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, timeout=60, debug=False, **kwargs):
@@ -49,3 +49,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
     print(f"Fetching player data for season {SEASON}")
     player_data = fetch_all_players(SEASON, debug=DEBUG)
+
