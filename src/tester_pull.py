@@ -1,9 +1,11 @@
 
 import logging
 from nba_api.stats.endpoints import commonallplayers
-from requests.exceptions import RequestException
+from requests.exceptions import RequestException, ReadTimeout
 from json.decoder import JSONDecodeError
 import time
+import os
+import requests
 
 # Define constants
 SEASON = "2023-24"
@@ -11,6 +13,10 @@ DEBUG = True
 MAX_RETRIES = 5
 INITIAL_DELAY = 5
 TIMEOUT = 120
+SLEEP_BETWEEN_CALLS = 0.6  # 600ms
+
+# Setup proxy (if needed)
+PROXY = os.getenv("NBA_API_PROXY", None)
 
 # Function to fetch data with retry logic
 def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, timeout=60, debug=False, **kwargs):
@@ -18,13 +24,22 @@ def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, timeout=60, debug
         try:
             if debug:
                 logging.debug(f"Fetching data using {endpoint.__name__} (Attempt {attempt + 1}) with parameters: {kwargs}")
-            data = endpoint(timeout=timeout, **kwargs).get_data_frames()
+            
+            # Make the request with the given proxy if available
+            if PROXY:
+                proxies = {"http": PROXY, "https": PROXY}
+                data = endpoint(proxies=proxies, timeout=timeout, **kwargs).get_data_frames()
+            else:
+                data = endpoint(timeout=timeout, **kwargs).get_data_frames()
 
             if debug:
                 logging.debug(f"Raw API Response: {endpoint(timeout=timeout, **kwargs).get_json()}")
 
+            # Sleep between calls to avoid rate limits
+            time.sleep(SLEEP_BETWEEN_CALLS)
+
             return data[0] if isinstance(data, list) else data
-        except (RequestException, JSONDecodeError, KeyError) as e:
+        except (RequestException, ReadTimeout, JSONDecodeError, KeyError) as e:
             if debug:
                 logging.debug(f"Error occurred: {e}")
             if attempt == max_retries - 1:
@@ -49,4 +64,5 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
     print(f"Fetching player data for season {SEASON}")
     player_data = fetch_all_players(SEASON, debug=DEBUG)
+
 
