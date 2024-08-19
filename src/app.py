@@ -26,6 +26,9 @@ from shot_chart.nba_plotting import plot_shot_chart_hexbin
 from shot_chart.nba_efficiency import create_mae_table, save_mae_table, load_mae_table, get_seasons_range, calculate_compatibility_between_players
 from shot_chart.shot_chart_main import run_scenario, preload_mae_tables, create_and_save_mae_table_specific, create_and_save_mae_table_all
 
+# Import functions from the small example app
+from advanced_metrics import plot_career_clusters, plot_injury_risk_vs_salary, plot_availability_vs_salary, plot_vorp_vs_salary, table_metric_salary, display_top_10_salary_per_metric, cluster_players_specialized, display_top_10_salary_per_metric_with_ws
+
 @st.cache_data
 def get_teams_list():
     """Get the list of NBA teams."""
@@ -339,6 +342,63 @@ def shot_chart_analysis():
         **Use this analysis to identify which teams are tough matchups (bad fits) versus easier matchups (good fits) based on how well they can defend your team's key offensive areas!**
         """)
 
+
+# Advanced Metrics Analysis Function
+def advanced_metrics_analysis():
+    st.header("NBA Advanced Metrics and Salary Analysis")
+    
+    # Load the data
+    data = pd.read_csv('data/processed/nba_player_data_final_inflated.csv')
+    
+    # Add a dropdown to select the season
+    seasons = sorted(data['Season'].unique(), reverse=True)
+    selected_season = st.selectbox("Select a Season", seasons)
+    
+    # Filter the data by the selected season
+    data_season = data[data['Season'] == selected_season]
+    
+    # Cluster players based on the filtered data
+    data_season = cluster_players_specialized(data_season, n_clusters=7)
+    
+    st.header("Plots")
+    
+    # Dropdown to select the plot
+    plot_choice = st.selectbox("Select a plot to view:", 
+                               ["Career Clusters: Age vs Salary", 
+                                "Injury Risk vs Salary", 
+                                "Availability vs Salary", 
+                                "VORP vs Salary"])
+    
+    if plot_choice == "Career Clusters: Age vs Salary":
+        fig = plot_career_clusters(data_season)
+        st.pyplot(fig)
+    elif plot_choice == "Injury Risk vs Salary":
+        fig = plot_injury_risk_vs_salary(data_season)
+        st.pyplot(fig)
+    elif plot_choice == "Availability vs Salary":
+        fig = plot_availability_vs_salary(data_season)
+        st.pyplot(fig)
+    elif plot_choice == "VORP vs Salary":
+        fig = plot_vorp_vs_salary(data_season)
+        st.pyplot(fig)
+    
+    st.header("Top 10 Salary per Metric Tables")
+    
+    # Calculate metrics table
+    metric_salary_table = table_metric_salary(data_season)
+    
+    # Dropdown to select the metric table
+    metric_choice = st.selectbox("Select a metric to view top 10:", 
+                                 ["Salary_per_WS", 
+                                  "Salary_per_VORP", 
+                                  "Salary_per_OWS", 
+                                  "Salary_per_DWS"])
+    
+    # Display the selected top 10 table with WS included
+    top_10_table = display_top_10_salary_per_metric_with_ws(metric_salary_table, metric_choice)
+    st.write(f"Top 10 {metric_choice}:")
+    st.dataframe(top_10_table)
+
 # Main Streamlit app
 def main():
     st.set_page_config(page_title="NBA Salary Prediction, Trade Analysis, and Shot Chart Analysis", layout="wide")
@@ -346,7 +406,7 @@ def main():
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Data Analysis", "Model Results", "Salary Evaluation", "Trade Impact Simulator", "Shot Chart Analysis"])
+    page = st.sidebar.radio("Go to", ["Introduction", "Data Analysis", "Model Results", "Salary Evaluation", "Trade Impact Simulator", "Shot Chart Analysis", "Advanced Metrics Analysis"])
 
     # Load base data
     print(os.getcwd())
@@ -385,7 +445,77 @@ def main():
         # Make predictions on the test data
         predictions_df = predict(test_data, model_save_path)
 
-    if page == "Data Analysis":
+
+    if page == "Introduction":
+        st.title("Enhanced NBA Player Salary Analysis")
+        st.write("Welcome to the NBA Salary Analysis and Prediction App! This project aims to provide comprehensive insights into NBA player salaries, advanced metrics, and future salary predictions based on historical data. Here's a detailed breakdown of the steps involved in creating this app:")
+
+        st.subheader("Data Collection")
+        
+        st.write("### Salary Data")
+        st.write("- **Sources**:")
+        st.write("  - [Basketball Reference Salary Cap History](https://www.basketball-reference.com/contracts/salary-cap-history.html)")
+        st.write("- **Description**: Data on the NBA salary cap from various seasons, along with maximum salary details for players based on years of service.")
+
+        st.write("### Add Injury Data (source will need to be updated**):")
+        st.write("- **Source**: [Kaggle NBA Injury Stats 1951-2023](https://www.kaggle.com/datasets/loganlauton/nba-injury-stats-1951-2023/data)")
+        st.write("- **Description**: This dataset provides detailed statistics on NBA injuries from 1951 to 2023, allowing for analysis of player availability and its impact on performance and salaries.")
+
+        st.write("### Advanced Metrics")
+        st.write("- **Source**: [Basketball Reference](https://www.basketball-reference.com)")
+        st.write("- **Description**: Advanced player metrics such as Player Efficiency Rating (PER), True Shooting Percentage (TS%), and Value Over Replacement Player (VORP) were scraped using BeautifulSoup.")
+
+        st.write("### Player Salaries and Team Data")
+        st.write("- **Source**: [Hoopshype](https://hoopshype.com)")
+        st.write("- **Description**: Player salary data was scraped for multiple seasons, with detailed information on individual player earnings and team salaries.")
+
+        st.subheader("Data Processing")
+
+        st.write("### Inflation Adjustment")
+        st.write("- **Source**: [Adjusting for Inflation in Python](https://medium.com/analytics-vidhya/adjusting-for-inflation-when-analysing-historical-data-with-python-9d69a8dcbc27)")
+        st.write("- **Description**: Adjusted historical salary data for inflation to provide a consistent basis for comparison.")
+
+        st.write("### Data Aggregation")
+        st.write("- Steps:")
+        st.write("  1. Loaded salary data and combined it with team standings and advanced metrics.")
+        st.write("  2. Merged multiple data sources to create a comprehensive dataset containing player performance, salaries, and advanced metrics.")
+
+        st.subheader("Model Training and Prediction")
+
+        st.write("### Data Preprocessing")
+        st.write("- Implemented functions to handle missing values, perform feature engineering, and calculate key metrics such as points per game (PPG), assists per game (APG), and salary growth.")
+
+        st.write("### Model Selection")
+        st.write("- Utilized various machine learning models including Random Forest, Gradient Boosting, Ridge Regression, and others to predict future player salaries.")
+        st.write("- Employed grid search for hyperparameter tuning and selected the best-performing models based on evaluation metrics like Mean Squared Error (MSE) and R² score.")
+
+        st.write("### Feature Importance and Clustering")
+        st.write("- Analyzed feature importance to understand the key factors influencing player salaries.")
+        st.write("- Clustered players into categories based on career trajectories, providing insights into player development and value.")
+
+        st.subheader("App Development")
+
+        st.write("### Streamlit App")
+        st.write("- Built an interactive app using Streamlit to visualize data, perform exploratory data analysis, and make salary predictions.")
+        st.write("- **Features**:")
+        st.write("  - **Data Overview**: Display raw and processed data.")
+        st.write("  - **Exploratory Data Analysis**: Visualize salary distributions, age vs. salary, and other key metrics.")
+        st.write("  - **Advanced Analytics**: Analyze VORP to salary ratio, career trajectory clusters, and other advanced metrics.")
+        st.write("  - **Salary Predictions**: Predict future salaries and compare actual vs. predicted values.")
+        st.write("  - **Player Comparisons**: Compare selected players based on predicted salaries and performance metrics.")
+        st.write("  - **Model Evaluation**: Evaluate different models and display their performance metrics and feature importance.")
+
+        st.write("### Data Files")
+        st.write("- Stored processed data and model files in a structured format to facilitate easy loading and analysis within the app.")
+
+        st.subheader("Improvements:")
+        
+        st.subheader("Conclusion")
+
+        st.write("This app provides a robust platform for analyzing NBA player salaries, understanding the factors influencing earnings, and predicting future salaries based on historical data and advanced metrics. Explore the app to gain insights into player performance, salary trends, and much more.")
+
+
+    elif page == "Data Analysis":
         st.header("Data Analysis")
 
         # Filter data by selected season
@@ -488,6 +618,9 @@ def main():
 
     elif page == "Shot Chart Analysis":
         shot_chart_analysis()
+
+    elif page == "Advanced Metrics Analysis":
+        advanced_metrics_analysis()
 
 if __name__ == "__main__":
     main()

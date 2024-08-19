@@ -280,10 +280,10 @@ def main(debug=False):
         print("\nAverage Champion Percentiles:")
         print(average_top_percentiles_df)
     
-    team_a_name = "Boston Celtics"
-    team_b_name = "Golden State Warriors"
-    players_from_boston = ["Jaylen Brown", "Jayson Tatum"]
-    players_from_warriors = ["Jordan Poole", "Kevon Looney"]
+    team_a_name = "Dallas Mavericks"
+    team_b_name = "Charlotte Hornets"
+    players_from_boston = ["Seth Curry ", "Grant Williams"]
+    players_from_warriors = ["P.J. Washington"]
     
     # Generate comparison tables before and after the trade
     celtics_comparison_table, warriors_comparison_table = generate_comparison_tables(
