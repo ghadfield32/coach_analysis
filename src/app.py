@@ -16,9 +16,6 @@ from data_loader_preprocessor import load_data, format_season, clean_data, engin
 from model_trainer import train_and_save_models, evaluate_models
 from model_predictor import predict
 
-# Import functions from app_test_trade_impact.py
-from app_test_trade_impact import analyze_trade_impact, get_players_for_team
-
 # Importing Shot Chart Analysis functions
 from shot_chart.nba_helpers import get_team_abbreviation, categorize_shot, get_all_court_areas
 from shot_chart.nba_shots import fetch_shots_data, fetch_defensive_shots_data, fetch_shots_for_multiple_players
@@ -28,6 +25,9 @@ from shot_chart.shot_chart_main import run_scenario, preload_mae_tables, create_
 
 # Import functions from the small example app
 from advanced_metrics import plot_career_clusters, plot_injury_risk_vs_salary, plot_availability_vs_salary, plot_vorp_vs_salary, table_metric_salary, display_top_10_salary_per_metric, cluster_players_specialized, display_top_10_salary_per_metric_with_ws
+
+# Import New and improved Trade functions
+from trade_impact_section_st_app import trade_impact_simulator_app
 
 @st.cache_data
 def get_teams_list():
@@ -139,83 +139,7 @@ def display_overpaid_underpaid(predictions_df):
         st.dataframe(underpaid[['Player', 'Team', 'Position', 'Salary', 'Predicted_Salary', 'Salary_Difference']])
 
 
-# Trade Impact Simulator function
-def display_trade_impact(results, team_a_name, team_b_name):
-    st.subheader(f"Percentile Counts Impact on {team_a_name} Compared to Average Champion Percentiles")
-    st.table(results['celtics_comparison_table'])
 
-    st.subheader(f"Percentile Counts Impact on {team_b_name} Compared to Average Champion Percentiles")
-    st.table(results['warriors_comparison_table'])
-
-    st.subheader("Pre vs Post Trade Impact")
-    st.table(results['overall_comparison'])
-
-    st.subheader("Salary Analysis: Overpaid vs Underpaid")
-    st.table(results['salary_analysis'])
-
-    st.subheader("Salary Cap Clearance: (debug shows Salary cap vs Salary Help)")
-    st.write(results['trade_scenario_results'])
-
-
-
-def trade_impact_simulator():
-    st.header("Trade Impact Simulator")
-
-    teams = load_team_data()
-    team_a_name = st.selectbox("Select Team A", teams['full_name'])
-    team_b_name = st.selectbox("Select Team B", teams['full_name'][teams['full_name'] != team_a_name].tolist())
-
-    players_from_team_a = st.multiselect(f"Select Players from {team_a_name}", get_players_for_team(team_a_name))
-    players_from_team_b = st.multiselect(f"Select Players from {team_b_name}", get_players_for_team(team_b_name))
-
-    trade_date = st.date_input("Trade Date", value=pd.to_datetime("2023-12-20"))
-
-    percentile_seasons = st.multiselect("Select Average Champion Comparison Percentiles Seasons (default: 10):", 
-                                        ["2014-15", "2015-16", "2016-17", "2017-18", 
-                                         "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24"],
-                                        default=["2014-15", "2015-16", "2016-17", "2017-18", 
-                                         "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24"])
-
-    if st.button("Simulate Trade Impact"):
-        if players_from_team_a and players_from_team_b:
-            traded_players = {player: team_a_name for player in players_from_team_a}
-            traded_players.update({player: team_b_name for player in players_from_team_b})
-
-            # Call the analysis function and capture the results
-            results = analyze_trade_impact(traded_players, trade_date.strftime('%Y-%m-%d'), percentile_seasons, debug=True)
-
-            if results:
-                # Display all results in the app
-                display_trade_impact(results, team_a_name, team_b_name)
-
-                # MAE Analysis section
-                st.subheader("Player Shooting Area Compatibility (MAE Analysis)")
-
-                # Combine the players from both teams
-                all_players = players_from_team_a + players_from_team_b
-
-                # Fetch shots for the selected players
-                player_shots = fetch_shots_for_multiple_players(all_players, season='2023-24', court_areas='all')
-
-                # Calculate compatibility
-                compatibility_df = calculate_compatibility_between_players(player_shots)
-
-                # Display the MAE table
-                st.write(compatibility_df)
-
-                # Salary Cap Clearance section
-                st.subheader("Salary Cap Clearance: (debug shows Salary cap vs Salary Help)")
-                st.write(results['trade_scenario_results'])
-
-                # Display debug output
-                st.subheader("Debug Information")
-                st.text_area("Detailed Debug Output", results['trade_scenario_debug'], height=300)
-
-                st.success("Trade Impact Simulation Completed")
-            else:
-                st.error("Trade impact analysis failed. Please check the inputs.")
-        else:
-            st.error("Please select players from both teams to simulate the trade impact.")
 
 
 # Shot Chart Analysis function
@@ -406,7 +330,18 @@ def main():
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Introduction", "Data Analysis", "Model Results", "Salary Evaluation", "Trade Impact Simulator", "Shot Chart Analysis", "Advanced Metrics Analysis"])
+    page = st.sidebar.radio(
+        "Go to",
+        [
+            "Introduction",
+            "Data Analysis",
+            "Model Results",
+            "Salary Evaluation",
+            "Shot Chart Analysis",
+            "Advanced Metrics Analysis",
+            "Trade Impact Simulator"
+        ]
+    )
 
     # Load base data
     print(os.getcwd())
@@ -601,26 +536,19 @@ def main():
         overpaid and underpaid players. We find the difference to uncover potential value opportunities for different teams.
         """)
         
-    elif page == "Trade Impact Simulator":
-        trade_impact_simulator()
-        
-        # Trade analysis explanation
-        st.subheader("Trade Analysis Explanation")
-        st.write("""
-        Our trade analysis compares team statistics before and after the proposed trade.
-        We consider:
-        1. Changes in key performance metrics (PPG, RPG, APG, etc.)
-        2. Salary implications and cap space impact
-        3. Comparison to league averages and recent championship teams
-        4. Distribution of top performers in various statistical categories
-        5. Overpaid/Underpaid player analysis
-        """)
 
     elif page == "Shot Chart Analysis":
         shot_chart_analysis()
 
     elif page == "Advanced Metrics Analysis":
         advanced_metrics_analysis()
+
+    elif page == "Trade Impact Simulator":
+        st.header("Trade Impact Simulator")
+        
+        # Assume selected_season is in YYYY format (e.g., 2023)
+        trade_impact_simulator_app(selected_season)
+        
 
 if __name__ == "__main__":
     main()

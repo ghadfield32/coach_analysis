@@ -1,0 +1,6 @@
+shot_effectiveness_chart for shot chart part of the app
+
+salary_stats_pull modularized to refill the nba_player_data_inflated
+
+overall_trade_impact for the trade portions of the app
+
