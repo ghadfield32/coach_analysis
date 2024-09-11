@@ -196,7 +196,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_year", type=int, default=current_year-1, help="Start year for data update")
     parser.add_argument("--end_year", type=int, default=current_year, help="End year for data update")
     parser.add_argument("--player_filter", type=str, default="all", help="Filter for specific player or 'all'")
-    parser.add_argument("--min_avg_minutes", type=float, default=25, help="Minimum average minutes per game")
+    parser.add_argument("--min_avg_minutes", type=float, default=15, help="Minimum average minutes per game")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
 
     args = parser.parse_args()

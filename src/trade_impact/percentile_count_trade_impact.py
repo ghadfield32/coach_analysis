@@ -1,6 +1,7 @@
 
 import pandas as pd
 import numpy as np
+import os
 import time
 from nba_api.stats.endpoints import leaguegamefinder, playergamelogs
 from nba_api.stats.static import teams, players
@@ -8,25 +9,26 @@ from nba_api.stats.static import teams, players
 # Constants
 RELEVANT_STATS = ['PTS', 'AST', 'TOV', 'STL', 'BLK', 'OREB', 'DREB', 'FGM', 'FG3M', 'FGA']
 PERCENTILE_THRESHOLDS = [1, 2, 3, 4, 5, 10, 25, 50]
+CACHE_FILE_PATH = '../data/processed/top_percentile_cache.csv'
 
+# Helper Functions
 def load_team_data():
     nba_teams = teams.get_teams()
     team_df = pd.DataFrame(nba_teams)
     return team_df[['id', 'full_name', 'abbreviation']]
 
-# Helper Functions
+def load_saved_percentile_counts():
+    """Load saved top percentile counts from a CSV cache file."""
+    if os.path.exists(CACHE_FILE_PATH):
+        return pd.read_csv(CACHE_FILE_PATH)
+    else:
+        return pd.DataFrame()  # Return empty DataFrame if no cache file exists
 
-def fetch_player_id_by_name(player_name, debug=False):
-    """Fetch player ID based on player name."""
-    try:
-        player = players.find_players_by_full_name(player_name)[0]
-        if debug:
-            print(f"Fetched ID for player {player_name}: {player['id']}")
-        return player['id']
-    except Exception as e:
-        if debug:
-            print(f"Error fetching ID for player {player_name}: {e}")
-        return None
+def save_percentile_counts(percentile_counts_df):
+    """Save top percentile counts to a CSV cache file."""
+    if not percentile_counts_df.empty:
+        percentile_counts_df.to_csv(CACHE_FILE_PATH, index=False)
+        print(f"Top percentile counts saved to {CACHE_FILE_PATH}")
 
 def get_champion_for_percentile(season, debug=False):
     """Fetch the champion team for a given NBA season."""
@@ -54,30 +56,48 @@ def get_champions_for_percentile(start_year, end_year, debug=False):
         elif debug:
             print(f"Champion data not available for season {season}")
         time.sleep(1)  # To avoid overwhelming the API
-    if debug:
-        print(f"Champions data: {champions}")
     return pd.DataFrame(champions)
 
-def calculate_average_top_percentiles(top_percentile_counts_df, debug=False):
-    """Calculate the average percentiles for all champion teams, grouped by season."""
-    average_percentiles = {}
-
-    for col in RELEVANT_STATS:
-        for threshold in PERCENTILE_THRESHOLDS:
-            count_key = f'{col}_Top_{threshold}_count'
-            avg_key = f'{col}_Avg_Top_{threshold}_percentile'
-            
-            # Calculate the mean of counts grouped by 'Season' and then average these means
-            avg_value = top_percentile_counts_df.groupby('Season')[count_key].mean().mean()
-            
-            avg_value = avg_value if pd.notnull(avg_value) else 0
-            average_percentiles[avg_key] = avg_value
-            
-            if debug:
-                print(f"{col} Avg Top {threshold}% Count across seasons: {avg_value}")
+# Updated get_champion_percentiles function to work with cached data
+def get_champion_percentiles(seasons, debug=False):
+    """Fetch or load champion percentiles for the given seasons."""
+    saved_percentiles_df = load_saved_percentile_counts()
     
-    return pd.DataFrame([average_percentiles])
+    # Determine which seasons are missing from the cache
+    existing_seasons = saved_percentiles_df['Season'].unique() if not saved_percentiles_df.empty else []
+    new_seasons = [season for season in seasons if season not in existing_seasons]
+    
+    if new_seasons:
+        if debug:
+            print(f"Fetching new data for seasons: {new_seasons}")
+        
+        # Fetch new data only for missing seasons
+        champion_info = get_champions_for_percentile(int(new_seasons[0].split('-')[0]), int(new_seasons[-1].split('-')[0]), debug)
+        player_stats, league_percentiles, league_percentiles_ref = fetch_and_process_season_data(new_seasons, debug)
 
+        # Calculate champion percentiles for new seasons
+        champion_percentiles = calculate_champion_percentiles(league_percentiles, champion_info, debug)
+        new_top_percentile_counts = champion_percentiles.groupby(['TEAM_NAME', 'Season']).apply(
+            lambda x: count_top_percentiles(x, league_percentiles_ref, x.iloc[0]['TEAM_NAME'], x.iloc[0]['Season'], debug)
+        ).apply(pd.Series).reset_index()
+        
+        # Append new data to saved cache
+        updated_percentiles_df = pd.concat([saved_percentiles_df, new_top_percentile_counts], ignore_index=True)
+        
+        # Save the updated cache
+        save_percentile_counts(updated_percentiles_df)
+    else:
+        if debug:
+            print(f"All requested seasons are already saved: {existing_seasons}")
+        updated_percentiles_df = saved_percentiles_df
+    
+    # Filter the saved or updated data for the requested seasons
+    filtered_percentiles_df = updated_percentiles_df[updated_percentiles_df['Season'].isin(seasons)]
+
+    # Calculate the average percentiles across the requested seasons
+    average_top_percentiles_df = calculate_average_top_percentiles(filtered_percentiles_df, debug)
+    
+    return average_top_percentiles_df
 
 def calculate_champion_percentiles(league_percentiles, champions, debug=False):
     """Extract percentiles for players in champion teams based on league percentiles."""
@@ -92,6 +112,17 @@ def calculate_champion_percentiles(league_percentiles, champions, debug=False):
     
     return champion_data
 
+def fetch_and_process_season_data(seasons, debug=False):
+    """Fetch player data and process it to calculate stats and percentiles."""
+    all_player_data = fetch_all_player_data(seasons, debug)
+    
+    # Calculate player-level stats
+    player_stats = calculate_player_stats(all_player_data, debug)
+    
+    # Calculate percentiles for all players in the league
+    league_percentiles, league_percentiles_ref = calculate_player_percentiles(player_stats, debug)
+    
+    return player_stats, league_percentiles, league_percentiles_ref
 
 def fetch_all_player_data(seasons, debug=False):
     """Fetch player game logs data for all players across multiple seasons."""
@@ -167,7 +198,7 @@ def count_top_percentiles(player_percentiles, percentiles, team_name, season, de
 
     return top_counts
 
-
+# Function to simulate trades and recalculate percentiles
 def simulate_trade(player_stats, players_from_team_a, players_from_team_b, team_a_name, team_b_name, debug=False):
     """Simulate a trade by swapping players between two teams."""
     if debug:
@@ -183,6 +214,26 @@ def simulate_trade(player_stats, players_from_team_a, players_from_team_b, team_
         print(player_stats[(player_stats['PLAYER_NAME'].isin(players_from_team_a + players_from_team_b))][['PLAYER_NAME', 'TEAM_NAME']])
     
     return player_stats
+
+def calculate_average_top_percentiles(top_percentile_counts_df, debug=False):
+    """Calculate the average percentiles for all champion teams, grouped by season."""
+    average_percentiles = {}
+
+    for col in RELEVANT_STATS:
+        for threshold in PERCENTILE_THRESHOLDS:
+            count_key = f'{col}_Top_{threshold}_count'
+            avg_key = f'{col}_Avg_Top_{threshold}_percentile'
+            
+            # Calculate the mean of counts grouped by 'Season' and then average these means
+            avg_value = top_percentile_counts_df.groupby('Season')[count_key].mean().mean()
+            
+            avg_value = avg_value if pd.notnull(avg_value) else 0
+            average_percentiles[avg_key] = avg_value
+            
+            if debug:
+                print(f"{col} Avg Top {threshold}% Count across seasons: {avg_value}")
+    
+    return pd.DataFrame([average_percentiles])
 
 def create_comparison_table(before_trade, after_trade, average_percentiles, team_name):
     """Create a comparison table for a team before and after the trade."""
@@ -201,40 +252,8 @@ def create_comparison_table(before_trade, after_trade, average_percentiles, team
     df.set_index('Percentile', inplace=True)
     return df
 
-def fetch_and_process_season_data(seasons, debug=False):
-    # Fetch player data for all specified seasons
-    all_player_data = fetch_all_player_data(seasons, debug)
-    
-    # Calculate player-level stats
-    player_stats = calculate_player_stats(all_player_data, debug)
-    
-    # Calculate percentiles for all players in the league
-    league_percentiles, league_percentiles_ref = calculate_player_percentiles(player_stats, debug)
-    
-    return player_stats, league_percentiles, league_percentiles_ref
-
-def get_champion_percentiles(seasons, debug=False):
-    start_year = int(seasons[0].split('-')[0])
-    end_year = int(seasons[-1].split('-')[0])
-
-    champion_info = get_champions_for_percentile(start_year, end_year, debug)
-    player_stats, league_percentiles, league_percentiles_ref = fetch_and_process_season_data(seasons, debug)
-    
-    # Calculate champion percentiles including the Season column
-    champion_percentiles = calculate_champion_percentiles(league_percentiles, champion_info, debug)
-    
-    # Group by TEAM_NAME and Season, then calculate top percentiles
-    top_percentile_counts = champion_percentiles.groupby(['TEAM_NAME', 'Season']).apply(
-        lambda x: count_top_percentiles(x, league_percentiles_ref, x.iloc[0]['TEAM_NAME'], x.iloc[0]['Season'], debug)
-    ).apply(pd.Series).reset_index()
-
-    # Calculate average percentiles across all seasons for each champion team
-    average_top_percentiles_df = calculate_average_top_percentiles(top_percentile_counts, debug)
-    
-    return average_top_percentiles_df
-
-
 def compare_teams_before_after_trade(season, team_a_name, team_b_name, players_from_team_a, players_from_team_b, debug=False):
+    # Use cached champion percentile data
     player_stats, league_percentiles, league_percentiles_ref = fetch_and_process_season_data([season], debug)
     
     # Count top percentiles before the trade
@@ -257,7 +276,7 @@ def compare_teams_before_after_trade(season, team_a_name, team_b_name, players_f
     
     return team_a_top_percentile_counts, team_a_top_percentile_counts_after, team_b_top_percentile_counts, team_b_top_percentile_counts_after
 
-
+# Function to generate comparison tables using updated champion percentile data
 def generate_comparison_tables(season, team_a_name, team_b_name, players_from_team_a, players_from_team_b, average_top_percentiles_df, debug=False):
     team_a_top_before, team_a_top_after, team_b_top_before, team_b_top_after = compare_teams_before_after_trade(
         season, team_a_name, team_b_name, players_from_team_a, players_from_team_b, debug
@@ -269,11 +288,10 @@ def generate_comparison_tables(season, team_a_name, team_b_name, players_from_te
     
     return celtics_comparison_table, warriors_comparison_table
 
-
 def main(debug=False):
-    seasons = ["2019-20", "2020-21","2021-22", "2022-23", "2023-24"]
+    seasons = ["2019-20", "2020-21", "2021-22", "2022-23", "2023-24"]
 
-    # Fetch champion percentiles and calculate averages
+    # Fetch champion percentiles and calculate averages using cached data
     average_top_percentiles_df = get_champion_percentiles(seasons, debug)
     
     if debug:
@@ -299,5 +317,3 @@ def main(debug=False):
 
 if __name__ == "__main__":
     main(debug=True)
-
-

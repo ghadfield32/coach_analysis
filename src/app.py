@@ -2,20 +2,13 @@
 import os
 import streamlit as st
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
-import plotly.graph_objects as go
-from datetime import datetime
+import matplotlib.pyplot as plt
 from nba_api.stats.static import teams, players
 
-# Import functions from other modules
-from data_loader_preprocessor import load_data, format_season, clean_data, engineer_features, encode_data
-from model_trainer import train_and_save_models, evaluate_models
-from model_predictor import predict
-
+#importing model utils
+from salary_model_training.data_loader_preprocessor import format_season
+from salary_model_training.util_functions import check_or_train_model, display_feature_importance, display_model_metrics, identify_overpaid_underpaid, plot_feature_importance
 # Importing Shot Chart Analysis functions
 from shot_chart.nba_helpers import get_team_abbreviation, categorize_shot, get_all_court_areas
 from shot_chart.nba_shots import fetch_shots_data, fetch_defensive_shots_data, fetch_shots_for_multiple_players
@@ -54,93 +47,61 @@ def load_player_data(start_year, end_year):
             player_data = pd.concat([player_data, data], ignore_index=True)
     return player_data
 
-def identify_overpaid_underpaid(predictions_df):
-    # Adjust Predicted_Salary calculation
-    predictions_df['Predicted_Salary'] = predictions_df['Predicted_Salary'] * predictions_df['Salary_Cap_Inflated']
+# Advanced Metrics Analysis Function
+def advanced_metrics_analysis():
+    st.header("NBA Advanced Metrics and Salary Analysis")
     
-    predictions_df['Salary_Difference'] = predictions_df['Salary'] - predictions_df['Predicted_Salary']
-    predictions_df['Overpaid'] = predictions_df['Salary_Difference'] > 0
-    predictions_df['Underpaid'] = predictions_df['Salary_Difference'] < 0
+    # Load the data
+    data = pd.read_csv('data/processed/nba_player_data_final_inflated.csv')
     
-    overpaid = predictions_df[predictions_df['Overpaid']].sort_values('Salary_Difference', ascending=False)
-    underpaid = predictions_df[predictions_df['Underpaid']].sort_values('Salary_Difference')
+    # Add a dropdown to select the season
+    seasons = sorted(data['Season'].unique(), reverse=True)
+    selected_season = st.selectbox("Select a Season", seasons)
     
-    return overpaid.head(10), underpaid.head(10)
-
-# Utility functions
-def load_processed_data(file_path):
-    data = load_data(file_path)
-    data = format_season(data)
-    data = clean_data(data)
-    data = engineer_features(data)
-    return data
-
-def filter_data_by_season(data, season):
-    return data[data['Season'] == season]
-
-# Data visualization functions
-def plot_feature_distribution(data, feature):
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.histplot(data[feature], kde=True, ax=ax)
-    ax.set_title(f'Distribution of {feature}')
-    ax.set_xlabel(feature)
-    ax.set_ylabel('Count')
-    return fig
-
-def plot_correlation_heatmap(data):
-    numeric_data = data.select_dtypes(include=[np.number])
-    corr = numeric_data.corr()
-    fig, ax = plt.subplots(figsize=(12, 10))
-    sns.heatmap(corr, annot=False, cmap='coolwarm', ax=ax)
-    ax.set_title('Correlation Heatmap')
-    return fig
-
-# Model metrics function
-def display_model_metrics(y_true, y_pred):
-    mse = mean_squared_error(y_true, y_pred)
-    rmse = np.sqrt(mse)
-    mae = mean_absolute_error(y_true, y_pred)
-    r2 = r2_score(y_true, y_pred)
-
-    st.subheader("Model Performance Metrics")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Mean Squared Error", f"{mse:.4f}")
-    col2.metric("Root Mean Squared Error", f"{rmse:.4f}")
-    col3.metric("Mean Absolute Error", f"{mae:.4f}")
-    col4.metric("R-squared", f"{r2:.4f}")
-
-def display_overpaid_underpaid(predictions_df):
-    st.subheader("Top 10 Overpaid and Underpaid Players")
-
-    # Add filters
-    col1, col2 = st.columns(2)
-    with col1:
-        team_filter = st.multiselect("Filter by Team", options=sorted(predictions_df['Team'].unique()))
-    with col2:
-        position_filter = st.multiselect("Filter by Position", options=sorted(predictions_df['Position'].unique()))
-
-    # Apply filters
-    filtered_df = predictions_df
-    if team_filter:
-        filtered_df = filtered_df[filtered_df['Team'].isin(team_filter)]
-    if position_filter:
-        filtered_df = filtered_df[filtered_df['Position'].isin(position_filter)]
-
-    # Identify overpaid and underpaid players
-    overpaid, underpaid = identify_overpaid_underpaid(filtered_df)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Top 10 Overpaid Players")
-        st.dataframe(overpaid[['Player', 'Team', 'Position', 'Salary', 'Predicted_Salary', 'Salary_Difference']])
-
-    with col2:
-        st.subheader("Top 10 Underpaid Players")
-        st.dataframe(underpaid[['Player', 'Team', 'Position', 'Salary', 'Predicted_Salary', 'Salary_Difference']])
-
-
-
-
+    # Filter the data by the selected season
+    data_season = data[data['Season'] == selected_season]
+    
+    # Cluster players based on the filtered data
+    data_season = cluster_players_specialized(data_season, n_clusters=7)
+    
+    st.header("Plots")
+    
+    # Dropdown to select the plot
+    plot_choice = st.selectbox("Select a plot to view:", 
+                               ["Career Clusters: Age vs Salary", 
+                                "Injury Risk vs Salary", 
+                                "Availability vs Salary", 
+                                "VORP vs Salary"])
+    
+    if plot_choice == "Career Clusters: Age vs Salary":
+        fig = plot_career_clusters(data_season)
+        st.pyplot(fig)
+    elif plot_choice == "Injury Risk vs Salary":
+        fig = plot_injury_risk_vs_salary(data_season)
+        st.pyplot(fig)
+    elif plot_choice == "Availability vs Salary":
+        fig = plot_availability_vs_salary(data_season)
+        st.pyplot(fig)
+    elif plot_choice == "VORP vs Salary":
+        fig = plot_vorp_vs_salary(data_season)
+        st.pyplot(fig)
+    
+    st.header("Top 10 Salary per Metric Tables")
+    
+    # Calculate metrics table
+    metric_salary_table = table_metric_salary(data_season)
+    
+    # Dropdown to select the metric table
+    metric_choice = st.selectbox("Select a metric to view top 10:", 
+                                 ["Salary_per_WS", 
+                                  "Salary_per_VORP", 
+                                  "Salary_per_OWS", 
+                                  "Salary_per_DWS"])
+    
+    # Display the selected top 10 table with WS included
+    top_10_table = display_top_10_salary_per_metric_with_ws(metric_salary_table, metric_choice)
+    st.write(f"Top 10 {metric_choice}:")
+    st.dataframe(top_10_table)
 
 # Shot Chart Analysis function
 def shot_chart_analysis():
@@ -266,120 +227,83 @@ def shot_chart_analysis():
         **Use this analysis to identify which teams are tough matchups (bad fits) versus easier matchups (good fits) based on how well they can defend your team's key offensive areas!**
         """)
 
+def convert_season_format(season_str):
+    try:
+        # Ensure we are splitting the season string correctly
+        if isinstance(season_str, str):
+            print(f"Original season string: {season_str}")  # Debug: Print original season string
 
-# Advanced Metrics Analysis Function
-def advanced_metrics_analysis():
-    st.header("NBA Advanced Metrics and Salary Analysis")
-    
-    # Load the data
-    data = pd.read_csv('data/processed/nba_player_data_final_inflated.csv')
-    
-    # Add a dropdown to select the season
-    seasons = sorted(data['Season'].unique(), reverse=True)
-    selected_season = st.selectbox("Select a Season", seasons)
-    
-    # Filter the data by the selected season
-    data_season = data[data['Season'] == selected_season]
-    
-    # Cluster players based on the filtered data
-    data_season = cluster_players_specialized(data_season, n_clusters=7)
-    
-    st.header("Plots")
-    
-    # Dropdown to select the plot
-    plot_choice = st.selectbox("Select a plot to view:", 
-                               ["Career Clusters: Age vs Salary", 
-                                "Injury Risk vs Salary", 
-                                "Availability vs Salary", 
-                                "VORP vs Salary"])
-    
-    if plot_choice == "Career Clusters: Age vs Salary":
-        fig = plot_career_clusters(data_season)
-        st.pyplot(fig)
-    elif plot_choice == "Injury Risk vs Salary":
-        fig = plot_injury_risk_vs_salary(data_season)
-        st.pyplot(fig)
-    elif plot_choice == "Availability vs Salary":
-        fig = plot_availability_vs_salary(data_season)
-        st.pyplot(fig)
-    elif plot_choice == "VORP vs Salary":
-        fig = plot_vorp_vs_salary(data_season)
-        st.pyplot(fig)
-    
-    st.header("Top 10 Salary per Metric Tables")
-    
-    # Calculate metrics table
-    metric_salary_table = table_metric_salary(data_season)
-    
-    # Dropdown to select the metric table
-    metric_choice = st.selectbox("Select a metric to view top 10:", 
-                                 ["Salary_per_WS", 
-                                  "Salary_per_VORP", 
-                                  "Salary_per_OWS", 
-                                  "Salary_per_DWS"])
-    
-    # Display the selected top 10 table with WS included
-    top_10_table = display_top_10_salary_per_metric_with_ws(metric_salary_table, metric_choice)
-    st.write(f"Top 10 {metric_choice}:")
-    st.dataframe(top_10_table)
+            # Split the season by '-' (e.g., '2023-24' -> ['2023', '24'])
+            year = season_str.split('-')[0]  # Get '2023'
 
-# Main Streamlit app
+            print(f"Formatted season string (year only): {year}")  # Debug: Print year only
+
+            return year  # Return only the starting year
+        else:
+            raise TypeError(f"Expected a string, but got {type(season_str)}")
+    except ValueError as ve:
+        print(f"ValueError: {ve}")
+        return season_str  # Fallback to original season if there's an issue
+    except Exception as e:
+        print(f"Error formatting season: {e}")
+        raise
+
+def plot_correlation_heatmap(data):
+    numeric_data = data.select_dtypes(include=[np.number])
+    corr = numeric_data.corr()
+    fig, ax = plt.subplots(figsize=(12, 10))
+    sns.heatmap(corr, annot=False, cmap='coolwarm', ax=ax)
+    ax.set_title('Correlation Heatmap')
+    return fig
+
+
+# Main app logic
 def main():
-    st.set_page_config(page_title="NBA Salary Prediction, Trade Analysis, and Shot Chart Analysis", layout="wide")
-    st.title("NBA Salary Prediction, Trade Analysis, and Shot Chart Analysis")
+    st.set_page_config(page_title="NBA Salary Prediction, Analysis, and Simulator", layout="wide")
+    st.title("NBA Salary Prediction, Data Analysis, and Trade Impact Simulator")
 
-    # Sidebar navigation
+    # Load the data
+    file_path = 'data/processed/nba_player_data_final_inflated.csv'
+    data = pd.read_csv(file_path)
+
+    # Get the unique seasons and exclude the earliest one
+    seasons = sorted(data['Season'].unique(), reverse=True)  # Sort in descending order
+    if len(seasons) > 1:
+        seasons = seasons[:-1]  # Remove the earliest season (the last element in the sorted list)
+
+    # Sidebar Navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio(
-        "Go to",
-        [
-            "Introduction",
-            "Data Analysis",
-            "Model Results",
-            "Salary Evaluation",
-            "Shot Chart Analysis",
-            "Advanced Metrics Analysis",
-            "Trade Impact Simulator"
-        ]
-    )
+    page = st.sidebar.radio("Go to", [
+        "Introduction", 
+        "Data Analysis", 
+        "Model Results", 
+        "Salary Evaluation", 
+        "Shot Chart Analysis", 
+        "Advanced Metrics Analysis", 
+        "Trade Impact Simulator"
+    ])
 
-    # Load base data
-    print(os.getcwd())
-    data = load_processed_data('data/processed/nba_player_data_final_inflated.csv')
-
-    # Load existing predictions for 2023
-    initial_predictions_df = pd.read_csv('data/processed/predictions_df.csv')
-
-    # Season selection
-    seasons = sorted(data['Season'].unique(), reverse=True)
+    # Season Selection (without the earliest season)
     selected_season = st.selectbox("Select Season", seasons)
+    season_year = selected_season.split('-')[0]
 
-    # Load models at the beginning of main()
-    model_save_path = 'data/models'
-    rf_model = joblib.load(f"{model_save_path}/best_rf_model.pkl")
-    xgb_model = joblib.load(f"{model_save_path}/best_xgb_model.pkl")
+    # File Paths
+    model_save_path = f'data/models/season_{season_year}'
 
-    # Use initial predictions if 2023 is selected, otherwise retrain
-    if selected_season == 2023:
-        predictions_df = initial_predictions_df
-    else:
-        # Train model and make predictions
-        train_data = data[data['Season'] < selected_season]
-        test_data = data[data['Season'] == selected_season]
+    # Load or train model and get predictions
+    predictions_df = check_or_train_model(file_path, model_save_path, season_year)
 
-        # Prepare the data for training
-        X_train = train_data.drop(['SalaryPct', 'Salary', 'Player'], axis=1)
-        y_train = train_data['SalaryPct']
+    # Load models (to be reused across pages)
+    rf_model_path = f'{model_save_path}/best_rf_model.pkl'
+    xgb_model_path = f'{model_save_path}/best_xgb_model.pkl'
 
-        # Encode the training data
-        X_train_encoded, _, encoders, scaler, numeric_cols, player_encoder = encode_data(X_train)
-
-        # Train and save models
-        train_and_save_models(X_train_encoded, y_train, model_save_path, scaler, X_train_encoded.columns, encoders, player_encoder, numeric_cols)
-
-        # Make predictions on the test data
-        predictions_df = predict(test_data, model_save_path)
-
+    try:
+        rf_model = joblib.load(rf_model_path)
+        xgb_model = joblib.load(xgb_model_path)
+        feature_names = joblib.load(f'{model_save_path}/feature_names.pkl')
+    except FileNotFoundError:
+        st.error("Models or feature names not found for the selected season. Please ensure the models are trained.")
+        return
 
     if page == "Introduction":
         st.title("Enhanced NBA Player Salary Analysis")
@@ -448,94 +372,54 @@ def main():
         st.subheader("Conclusion")
 
         st.write("This app provides a robust platform for analyzing NBA player salaries, understanding the factors influencing earnings, and predicting future salaries based on historical data and advanced metrics. Explore the app to gain insights into player performance, salary trends, and much more.")
+        st.subheader("Original Data")
+        original_df = pd.read_csv(file_path)
+        st.dataframe(original_df)
 
+        st.subheader("Predicted Data")
+        st.write("Here are the salary predictions generated based on Random Forest and XGBoost models.")
+        st.dataframe(predictions_df)
 
     elif page == "Data Analysis":
         st.header("Data Analysis")
+        st.write("Analyze the player and team statistics in detail for each season.")
+        # Debugging the data loading
+        st.write("Debugging: Verifying data columns before processing...")
+        original_df = pd.read_csv(file_path)
+        st.write("Data columns:", original_df.columns.tolist())
+        st.write("Basic Statistics for Selected Season")
+        st.write(original_df.describe())
 
-        # Filter data by selected season
-        season_data = filter_data_by_season(data, selected_season)
-
-        # Display basic statistics
-        st.subheader("Basic Statistics")
-        st.write(season_data.describe())
-
-        # Feature distribution
-        st.subheader("Feature Distribution")
-        feature = st.selectbox("Select Feature", season_data.columns)
-        fig = plot_feature_distribution(season_data, feature)
-        st.pyplot(fig)
-
-        # Correlation heatmap
-        st.subheader("Correlation Heatmap")
-        fig = plot_correlation_heatmap(season_data)
-        st.pyplot(fig)
-
-        # Data handling explanation
-        st.subheader("Data Handling")
-        st.write("""
-        We preprocessed the data to ensure it's suitable for our models:
-        1. Cleaned missing values and outliers
-        2. Engineered new features like PPG, APG, etc.
-        3. Encoded categorical variables (Position, Team, Injury Risk)
-        4. Scaled numerical features
-        """)
 
     elif page == "Model Results":
         st.header("Model Results")
-
-        # Model selection
         model_choice = st.selectbox("Select Model", ["Random Forest", "XGBoost"])
-
-        if model_choice == "Random Forest":
-            model = rf_model
-            y_pred = predictions_df['RF_Predictions']
-        else:
-            model = xgb_model
-            y_pred = predictions_df['XGB_Predictions']
-
-        # Display model metrics
-        display_model_metrics(predictions_df['SalaryPct'], y_pred)
-
-        # Feature importance
-        st.subheader("Feature Importance")
-        feature_importance = pd.DataFrame({
-            'feature': model.feature_names_in_,
-            'importance': model.feature_importances_
-        }).sort_values('importance', ascending=False)
-        print("Features used in the model:", model.feature_names_in_)  # Debug statement
-        print("Feature importance data:", feature_importance.head())  # Debug statement
-        # Filter out categorical variables (e.g., Position_ and Team_ columns)
-        filtered_feature_importance = feature_importance[
-            ~feature_importance['feature'].str.startswith('Team_') &
-            ~feature_importance['feature'].str.startswith('Position_') &
-            ~feature_importance['feature'].str.startswith('Injury_Risk')
-        ]
-
-        # Before plotting feature importance
-        print("Filtered features for plotting:", filtered_feature_importance['feature'].tolist())  # Debug statement
-        st.bar_chart(filtered_feature_importance.set_index('feature'))
-
-
-        # Model explanation
-        st.subheader("Model Explanation")
-        st.write(f"""
-        The {model_choice} model was trained on historical NBA player data to predict salary percentages.
-        We used the following techniques to improve model performance:
-        1. Feature engineering to create relevant statistics
-        2. Proper encoding of categorical variables
-        3. Scaling of numerical features
-        4. Hyperparameter tuning using GridSearchCV
-        """)
+        st.subheader(f"{model_choice} Model Results")
+        display_model_metrics(model_save_path)
         
+        # Feature importance
+        if model_choice == "Random Forest":
+            st.subheader("Random Forest Feature Importance")
+            feature_importances_df = display_feature_importance(rf_model, feature_names, ['Position_', 'Team_'])
+        else:
+            st.subheader("XGBoost Feature Importance")
+            feature_importances_df = display_feature_importance(xgb_model, feature_names, ['Position_', 'Team_'])
+
+        # Display the filtered feature importance dataframe
+        st.dataframe(feature_importances_df)
+        # Plot and display the feature importance bar chart
+        fig = plot_feature_importance(feature_importances_df, model_choice)
+        st.pyplot(fig)
+
     elif page == "Salary Evaluation":
         st.header("Salary Evaluation")
-        display_overpaid_underpaid(predictions_df)
-        st.write("""
-        Using the Predicted Salary and Salary based on that season's stats, we can identify 
-        overpaid and underpaid players. We find the difference to uncover potential value opportunities for different teams.
-        """)
-        
+        num_players = st.slider("Select number of players to display", min_value=5, max_value=20, value=10)
+        overpaid, underpaid = identify_overpaid_underpaid(predictions_df, top_n=num_players)
+        st.subheader(f"Top {num_players} Overpaid Players")
+        st.dataframe(overpaid[['Player', 'Team', 'Salary', 'Predicted_Salary', 'Salary_Difference']])
+        st.subheader(f"Top {num_players} Underpaid Players")
+        st.dataframe(underpaid[['Player', 'Team', 'Salary', 'Predicted_Salary', 'Salary_Difference']])
+
 
     elif page == "Shot Chart Analysis":
         shot_chart_analysis()
@@ -545,10 +429,9 @@ def main():
 
     elif page == "Trade Impact Simulator":
         st.header("Trade Impact Simulator")
-        
-        # Assume selected_season is in YYYY format (e.g., 2023)
-        trade_impact_simulator_app(selected_season)
-        
+        formatted_season = convert_season_format(selected_season)
+        trade_impact_simulator_app(formatted_season) #2023 or XXXX format is needed
 
 if __name__ == "__main__":
     main()
+

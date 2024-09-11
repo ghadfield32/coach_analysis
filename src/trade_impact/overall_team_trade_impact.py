@@ -3,6 +3,92 @@ import pandas as pd
 import numpy as np
 from nba_api.stats.endpoints import playergamelogs, leaguegamefinder
 from nba_api.stats.static import players, teams
+import os
+import pickle
+
+# Set the cache directory and file path
+CACHE_DIR = "../data/processed/"
+CACHE_FILE = os.path.join(CACHE_DIR, "champion_stats_cache.pkl")
+
+# Ensure the directory exists
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR)
+
+def load_cache():
+    """Load the cached champion stats if available."""
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, 'rb') as f:
+            cache = pickle.load(f)
+        return cache
+    return {}
+
+def save_cache(cache):
+    """Save the champion stats to cache."""
+    with open(CACHE_FILE, 'wb') as f:
+        pickle.dump(cache, f)
+
+def get_champion(season, debug=False):
+    """Fetch the champion team for a given NBA season."""
+    try:
+        games = leaguegamefinder.LeagueGameFinder(season_nullable=season, season_type_nullable='Playoffs').get_data_frames()[0]
+        games['GAME_DATE'] = pd.to_datetime(games['GAME_DATE'])
+        last_game = games.sort_values('GAME_DATE').iloc[-2:]
+        winner = last_game[last_game['WL'] == 'W'].iloc[0]
+        if debug:
+            print(f"Champion for season {season}: {winner['TEAM_NAME']} ({winner['TEAM_ID']})")
+        return winner['TEAM_NAME']
+    except Exception as e:
+        if debug:
+            print(f"Error fetching champion for season {season}: {e}")
+        return None
+
+def get_champion_team_stats(seasons, relevant_stats, debug=False):
+    """Fetch and process champion team stats for the selected seasons, using caching."""
+    # Load the cache
+    cache = load_cache()
+
+    all_team_stats = pd.DataFrame()
+
+    # List of seasons that need to be fetched (not in cache)
+    missing_seasons = [season for season in seasons if season not in cache]
+
+    if missing_seasons:
+        if debug:
+            print(f"Fetching data for missing seasons: {missing_seasons}")
+        
+        # Fetch data for missing seasons
+        for season in missing_seasons:
+            season_data = fetch_season_data_by_year(season, debug)
+            if season_data is None:
+                continue  # Skip if no data
+
+            team_stats = calculate_team_stats(season_data, 'No-trade', relevant_stats, debug)
+            team_stats = calculate_percentiles(team_stats, relevant_stats, debug)
+            
+            # Identify the champion team
+            champ_name = get_champion(season, debug)
+            if champ_name:
+                champ_stats = team_stats[team_stats['TEAM_NAME'] == champ_name]
+                cache[season] = champ_stats  # Store the stats in the cache
+
+        # Save the updated cache
+        save_cache(cache)
+
+    # Collect data from the cache for the requested seasons
+    for season in seasons:
+        if season in cache:
+            all_team_stats = pd.concat([all_team_stats, cache[season]])
+
+    # Calculate average champion stats
+    if not all_team_stats.empty:
+        numeric_cols = all_team_stats.select_dtypes(include=[np.number]).columns
+        average_champion = all_team_stats[numeric_cols].mean().to_frame().T
+        average_champion['TEAM_NAME'] = 'Average Champion'
+        average_champion['SEASON'] = 'Multiple Seasons'
+        all_team_stats = pd.concat([all_team_stats, average_champion])
+
+    return all_team_stats
+
 
 def fetch_player_id_by_name(player_name, debug=False):
     try:
@@ -95,47 +181,6 @@ def calculate_percentiles(stats_df, relevant_stats, debug=False):
                     print(stats_df.loc[stats_df['SEASON'] == season, [stat_per_game, percentile_col]].head(), "\n")
     
     return stats_df
-
-def get_champion(season, debug=False):
-    """Fetch the champion team for a given NBA season."""
-    try:
-        games = leaguegamefinder.LeagueGameFinder(season_nullable=season, season_type_nullable='Playoffs').get_data_frames()[0]
-        games['GAME_DATE'] = pd.to_datetime(games['GAME_DATE'])
-        last_game = games.sort_values('GAME_DATE').iloc[-2:]
-        winner = last_game[last_game['WL'] == 'W'].iloc[0]
-        if debug:
-            print(f"Champion for season {season}: {winner['TEAM_NAME']} ({winner['TEAM_ID']})")
-        return winner['TEAM_NAME']
-    except Exception as e:
-        if debug:
-            print(f"Error fetching champion for season {season}: {e}")
-        return None
-
-
-def get_champion_team_stats(seasons, relevant_stats, debug=False):
-    """Fetch and process champion team stats for the selected seasons."""
-    all_team_stats = pd.DataFrame()
-
-    for season in seasons:
-        season_data = fetch_season_data_by_year(season, debug)
-        team_stats = calculate_team_stats(season_data, 'No-trade', relevant_stats, debug)
-        team_stats = calculate_percentiles(team_stats, relevant_stats, debug)
-        
-        # Identify the champion team
-        champ_name = get_champion(season, debug)
-        if champ_name:
-            champ_stats = team_stats[team_stats['TEAM_NAME'] == champ_name]
-            all_team_stats = pd.concat([all_team_stats, champ_stats])
-
-    # Calculate average champion stats
-    if not all_team_stats.empty:
-        numeric_cols = all_team_stats.select_dtypes(include=[np.number]).columns
-        average_champion = all_team_stats[numeric_cols].mean().to_frame().T
-        average_champion['TEAM_NAME'] = 'Average Champion'
-        average_champion['SEASON'] = 'Multiple Seasons'
-        all_team_stats = pd.concat([all_team_stats, average_champion])
-
-    return all_team_stats
 
 
 def calculate_player_averages(post_trade_data, traded_players, relevant_stats, debug=False):
@@ -381,7 +426,7 @@ def main(debug=True):
     traded_players.update({player: team_a_name for player in selected_players_team_b})
     
     # Specify the seasons to consider for champions
-    champion_seasons = ["2021-22", "2022-23", "2023-24"]  # Adjust this list as needed
+    champion_seasons = ["2014-15", "2015-16", "2016-17", "2017-18", "2018-19", "2019-20", "2021-22", "2022-23", "2023-24"]
     
     # Adjust the relevant stats to analyze
     relevant_stats = ['PTS']  # This can be modified
@@ -397,6 +442,6 @@ def main(debug=True):
         print(table)
 
 if __name__ == "__main__":
-    main(debug=False)
+    main(debug=True)
 
 

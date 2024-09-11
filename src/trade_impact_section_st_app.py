@@ -71,7 +71,42 @@ def trade_impact_simulator_app(selected_season="2023"):
     # Overview of the app
     st.write("""
     ## About This App
-    This application allows you to analyze the impact of a trade between two NBA teams...
+    This application allows you to analyze the impact of a trade between two NBA teams. It includes the following components:
+    
+    ### 1. Trade Scenario Analysis:
+    - Ensure the trade satisfies NBA salary matching rules based on the provided player salaries.
+
+    ### 2. Percentile Counts:
+    - The count of top 1, 2, 3, 4, 5, 10, 25, 50 percentiles of the team's performance before and after the trade,
+      compared to the last 'n' seasons selected in the champion season filter.
+
+    ### 3. Overall Trade Impact:
+    - **Pre-Trade Scenario**:
+        * Data Collection: Filter season data to include only games before the trade date.
+        * Statistical Calculations: Calculate total points and games played before the trade.
+        * Averaging: Calculate average points per game before the trade.
+        * Percentile Ranking: Rank teams based on pre-trade performance.
+    - **Post-Trade Scenario**:
+        * Data Collection: Filter season data for games on or after the trade date.
+        * Player Averages: Calculate average points for traded players post-trade.
+        * Simulating Game Logs: Simulate additional game logs using calculated player averages.
+        * Statistical Calculations: Combine simulated and actual post-trade data for calculations.
+        * Averaging: Calculate average points per game post-trade.
+        * Percentile Ranking: Rank teams based on post-trade performance.
+    - **No-Trade Scenario**:
+        * Data Collection: Use full season data assuming no trades occurred.
+        * Statistical Calculations: Calculate total points and games played for the entire season.
+        * Averaging: Calculate average points per game for the full season.
+        * Percentile Ranking: Rank teams based on full-season performance.
+    - **Final Comparison**:
+        * Aggregation: Organize pre-trade, post-trade, and no-trade results.
+        * Metrics Compared: Total points, games played, average points per game, and percentile rankings.
+
+    ### 4. Overpaid/Underpaid Player Analysis:
+    - Analyze whether the players involved in the trade are overpaid or underpaid based on predicted salaries.
+
+    ### 5. Player Compatibility Analysis:
+    - Calculate the compatibility between the players being traded based on their shooting areas.
     """)
 
     # Load the predictions data
