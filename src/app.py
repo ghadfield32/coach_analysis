@@ -2,12 +2,14 @@
 import os
 import streamlit as st
 import pandas as pd
+import seaborn as sns
+import numpy as np
 import joblib
 import matplotlib.pyplot as plt
 from nba_api.stats.static import teams, players
 
 #importing model utils
-from salary_model_training.data_loader_preprocessor import format_season
+from salary_model_training.data_loader_preprocessor import format_season, engineer_features, label_encode_injury_risk, build_pipeline, filter_seasons
 from salary_model_training.util_functions import check_or_train_model, display_feature_importance, display_model_metrics, identify_overpaid_underpaid, plot_feature_importance
 # Importing Shot Chart Analysis functions
 from shot_chart.nba_helpers import get_team_abbreviation, categorize_shot, get_all_court_areas
@@ -227,6 +229,83 @@ def shot_chart_analysis():
         **Use this analysis to identify which teams are tough matchups (bad fits) versus easier matchups (good fits) based on how well they can defend your team's key offensive areas!**
         """)
 
+def data_analysis():
+    st.header("Data Analysis")
+
+    # Load the data
+    file_path = 'data/processed/nba_player_data_final_inflated.csv'
+    data = pd.read_csv(file_path)
+
+    # Add a dropdown to select the season
+    seasons = sorted(data['Season'].unique(), reverse=True)
+    selected_season = st.selectbox("Select a Season", seasons)
+
+    # Filter data by selected season
+    season_data = data[data['Season'] == selected_season]
+
+    # Display basic statistics
+    st.subheader("Basic Statistics")
+    st.write(season_data.describe())
+
+    # Feature distribution
+    st.subheader("Feature Distribution")
+    feature = st.selectbox("Select Feature", season_data.columns)
+    fig = plot_feature_distribution(season_data, feature)
+    st.pyplot(fig)
+
+    # Correlation heatmap
+    st.subheader("Correlation Heatmap")
+    fig = plot_correlation_heatmap(season_data)
+    st.pyplot(fig)
+
+    # Data preprocessing explanation
+    st.subheader("Data Preprocessing")
+    st.write("""
+    We preprocess the data to ensure it's suitable for modeling. Here are the key steps involved:
+    1. **Cleaning Data**: Handle missing values, clean advanced statistics columns, and remove unnecessary columns.
+    2. **Feature Engineering**: Create new features like Points Per Game (PPG), Availability, Salary Percentages, and Efficiency.
+    3. **Label Encoding**: Encode categorical features like 'Injury Risk' and 'Position'.
+    4. **Scaling**: Scale numerical features to normalize the data.
+    5. **Season Filtering**: Filter the data by seasons to prepare train and test datasets.
+    """)
+
+    # Add preprocessing steps breakdown
+    preprocessing_step = st.selectbox("Select a Preprocessing Step", [
+        "Clean Data",
+        "Feature Engineering",
+        "Label Encoding"
+    ])
+
+    if preprocessing_step == "Clean Data":
+        st.write("""
+        In this step, we remove unnecessary columns such as 'Wins', 'Losses', and '2nd Apron', and handle missing data in percentage-based columns (e.g., 3P%, FT%, 2P%). 
+        The columns are dropped based on the assumption that they do not contribute significantly to salary prediction.
+        """)
+        st.write("Cleaned Data Columns: ", data.columns.tolist())
+
+    elif preprocessing_step == "Feature Engineering":
+        st.write("""
+        We derive new features such as:
+        - **PPG (Points Per Game)**: Points scored per game.
+        - **Availability**: Games played / total games in a season.
+        - **SalaryPct**: Salary as a percentage of the inflated salary cap.
+        - **Efficiency**: A custom efficiency metric based on offensive and defensive stats.
+        """)
+        st.write("Engineered Feature Example: Availability and Efficiency")
+        engineered_data, pipeline_data, _ = engineer_features(season_data)
+        st.write(engineered_data[['Availability', 'Efficiency']].head())
+
+    elif preprocessing_step == "Label Encoding":
+        st.write("""
+        We encode categorical features like 'Injury Risk' into numeric values to feed into the machine learning model. For example:
+        - **Low Risk**: 1
+        - **Moderate Risk**: 2
+        - **High Risk**: 3
+        """)
+        label_encoded_data = label_encode_injury_risk(season_data)
+        st.write(label_encoded_data[['Injury_Risk']].head())
+
+
 def convert_season_format(season_str):
     try:
         # Ensure we are splitting the season string correctly
@@ -247,6 +326,15 @@ def convert_season_format(season_str):
     except Exception as e:
         print(f"Error formatting season: {e}")
         raise
+
+# Data visualization functions
+def plot_feature_distribution(data, feature):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.histplot(data[feature], kde=True, ax=ax)
+    ax.set_title(f'Distribution of {feature}')
+    ax.set_xlabel(feature)
+    ax.set_ylabel('Count')
+    return fig
 
 def plot_correlation_heatmap(data):
     numeric_data = data.select_dtypes(include=[np.number])
@@ -283,9 +371,9 @@ def main():
         "Trade Impact Simulator"
     ])
 
-    # Season Selection (without the earliest season)
+    # Season Selection (format to integer year)
     selected_season = st.selectbox("Select Season", seasons)
-    season_year = selected_season.split('-')[0]
+    season_year = int(selected_season.split('-')[0])
 
     # File Paths
     model_save_path = f'data/models/season_{season_year}'
@@ -381,14 +469,7 @@ def main():
         st.dataframe(predictions_df)
 
     elif page == "Data Analysis":
-        st.header("Data Analysis")
-        st.write("Analyze the player and team statistics in detail for each season.")
-        # Debugging the data loading
-        st.write("Debugging: Verifying data columns before processing...")
-        original_df = pd.read_csv(file_path)
-        st.write("Data columns:", original_df.columns.tolist())
-        st.write("Basic Statistics for Selected Season")
-        st.write(original_df.describe())
+        data_analysis()
 
 
     elif page == "Model Results":

@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import os
 import logging
-from .data_loader_preprocessor import preprocessed_datasets, build_pipeline, filter_seasons
+from .data_loader_preprocessor import preprocessed_datasets, build_pipeline, filter_seasons, get_feature_names
 
 # Set up logging for debugging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -126,13 +126,10 @@ def load_and_preprocess_data(file_path, predict_season, model_save_path):
     # Save the columns to re-add later
     joblib.dump(columns_to_re_add, os.path.join(model_save_path, 'columns_to_re_add.pkl'))
 
-    # Debug: Get feature names after transformation
-    feature_names = pipeline.get_feature_names_out()
-    logger.debug(f"Transformed feature names: {feature_names}")
-    logger.debug(f"X_train_transformed shape: {X_train_transformed.shape}")
-    logger.debug(f"X_test_transformed shape: {X_test_transformed.shape}")
-
-    logger.debug(f"Data transformed successfully for training and testing.")
+    # Save Features
+    all_col_names = get_feature_names(pipeline)
+    print("all column names = ", all_col_names)
+    joblib.dump(all_col_names, os.path.join(model_save_path, 'feature_names.pkl'))
     
     return X_train_transformed, X_test_transformed, y_train, y_test
 

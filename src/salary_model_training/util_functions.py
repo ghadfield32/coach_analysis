@@ -5,9 +5,14 @@ import numpy as np
 import joblib
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
+from .data_loader_preprocessor import preprocessed_datasets
 from .model_trainer import load_and_preprocess_data, train_and_save_models, evaluate_models  # Add this line
 from .model_predictor import make_predictions
+import logging
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 CATEGORICAL_FEATURES = ['Position_', 'Team_']
 
@@ -22,15 +27,20 @@ def load_evaluation_metrics(model_save_path):
         return None
 
 def check_or_train_model(file_path, model_save_path, season_year):
-    """Check for predictions, train the models if predictions are not found, and return predictions."""
+    logger.debug(f"Received season_year: {season_year}, Type: {type(season_year)}")
+
+    # Convert season_year to an integer if it's a string
+    if isinstance(season_year, str):
+        season_year = int(season_year)
+        logger.debug(f"Converted season_year to int: {season_year}, Type: {type(season_year)}")
+
     predictions_file_path = f'{model_save_path}/rf_predictions.csv'
-    
     if os.path.exists(predictions_file_path):
-        print(f"Predictions file found for {season_year}.")
+        logger.debug(f"Predictions file found for {season_year}.")
         predictions_df = pd.read_csv(predictions_file_path)
     else:
-        print(f"Predictions not available for {season_year}. Training the model now...")
-
+        logger.debug(f"Predictions not available for {season_year}. Training the model now...")
+        
         # Train and predict
         X_train, X_test, y_train, y_test = load_and_preprocess_data(file_path, season_year, model_save_path)
         train_and_save_models(X_train, y_train, model_save_path)
@@ -39,8 +49,10 @@ def check_or_train_model(file_path, model_save_path, season_year):
         # Generate predictions
         rf_final_df, xgb_final_df = make_predictions(file_path, season_year, model_save_path)
         predictions_df = pd.concat([rf_final_df, xgb_final_df], axis=1)
-    
+
     return predictions_df
+
+
 
 def display_model_metrics(model_save_path):
     """Display saved model performance metrics for both Random Forest and XGBoost."""
@@ -95,13 +107,28 @@ def plot_feature_importance(feature_importances_df, model_name):
     return plt
 
 def identify_overpaid_underpaid(predictions_df, top_n=10):
-    """Identify overpaid and underpaid players based on salary differences."""
+    logger.debug(f"Checking Salary and Predicted_Salary columns")
+    
+    # Check for duplicate columns and remove them
+    predictions_df = predictions_df.loc[:, ~predictions_df.columns.duplicated()]
+    
+    logger.debug(f"Salary type: {type(predictions_df['Salary'].iloc[0])}, Predicted_Salary type: {type(predictions_df['Predicted_Salary'].iloc[0])}")
+    logger.debug(f"First few Salary values: {predictions_df['Salary'].head()}")
+    logger.debug(f"First few Predicted_Salary values: {predictions_df['Predicted_Salary'].head()}")
+    
+    # Calculate salary differences
     predictions_df['Salary_Difference'] = predictions_df['Salary'] - predictions_df['Predicted_Salary']
     
+    # Identify overpaid and underpaid players
     overpaid = predictions_df[predictions_df['Salary_Difference'] > 0].sort_values('Salary_Difference', ascending=False).head(top_n)
     underpaid = predictions_df[predictions_df['Salary_Difference'] < 0].sort_values('Salary_Difference').head(top_n)
     
+    logger.debug(f"Top overpaid: {overpaid[['Player', 'Salary', 'Predicted_Salary', 'Salary_Difference']].head()}")
+    logger.debug(f"Top underpaid: {underpaid[['Player', 'Salary', 'Predicted_Salary', 'Salary_Difference']].head()}")
+    
     return overpaid, underpaid
+
+
 
 def display_overpaid_underpaid(predictions_df, top_n=10):
     """Display top overpaid and underpaid players."""
@@ -113,16 +140,70 @@ def display_overpaid_underpaid(predictions_df, top_n=10):
     print(f"\nTop {top_n} Underpaid Players:")
     print(underpaid[['Player', 'Team', 'Salary', 'Predicted_Salary', 'Salary_Difference']])
 
+
+
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+def plot_feature_distribution(data, feature):
+    """Plot the distribution of a selected feature."""
+    logger.debug(f"Plotting distribution for feature: {feature}")
+    fig, ax = plt.subplots()
+    data[feature].hist(ax=ax, bins=20)
+    ax.set_title(f"Distribution of {feature}")
+    ax.set_xlabel(feature)
+    ax.set_ylabel("Frequency")
+    return fig
+
+
+def plot_correlation_heatmap(data):
+    """Plot a correlation heatmap of the numerical features in the dataset."""
+    logger.debug("Plotting correlation heatmap for numeric features.")
+    numeric_data = data.select_dtypes(include=[np.number])
+    corr = numeric_data.corr()
+    fig, ax = plt.subplots(figsize=(12, 10))
+    sns.heatmap(corr, annot=False, cmap='coolwarm', ax=ax)
+    ax.set_title('Correlation Heatmap')
+    return fig
+
+def test_data_analysis_functions():
+    """Test the data analysis utility functions."""
+    # Load some test data
+    file_path = '../data/processed/nba_player_data_final_inflated.csv'
+    cleaned_data, engineered_data, pipeline_data, columns_to_re_add = preprocessed_datasets(file_path)
+
+    # Select a feature to test the distribution plot
+    feature = 'SalaryPct'  # Choose a numerical feature available in your dataset
+    logger.debug(f"Testing feature distribution for: {feature}")
+    
+    # Test the feature distribution function
+    fig = plot_feature_distribution(pipeline_data, feature)
+    fig.show()  # Show the plot to ensure it's working correctly
+
+    # Test the correlation heatmap function
+    logger.debug("Testing correlation heatmap plot.")
+    fig = plot_correlation_heatmap(pipeline_data)
+    fig.show()  # Show the heatmap plot
+
+
+
 def main_test_function():
     """Main function to test all utility functions."""
     file_path = '../data/processed/nba_player_data_final_inflated.csv'
-    season_year = '2023'
+    season_year = '2021'  # initially a string
+    logger.debug(f"Original season_year: {season_year}, Type: {type(season_year)}")
+
+    # Convert to integer if necessary
+    if isinstance(season_year, str):
+        season_year = int(season_year)
+        logger.debug(f"Converted season_year to int: {season_year}, Type: {season_year}")
+
     model_save_path = f'../data/models/season_{season_year}'
 
     # Test check_or_train_model
     predictions_df = check_or_train_model(file_path, model_save_path, season_year)
-    print("\nPredictions DataFrame:")
-    print(predictions_df.head())
+    logger.debug(f"Predictions DataFrame:\n{predictions_df.head()}")
 
     # Test display_model_metrics
     display_model_metrics(model_save_path)
@@ -143,5 +224,10 @@ def main_test_function():
     # Test display_overpaid_underpaid
     display_overpaid_underpaid(predictions_df)
 
+    # Test the data analysis functions
+    test_data_analysis_functions()
+
 if __name__ == "__main__":
     main_test_function()
+
+

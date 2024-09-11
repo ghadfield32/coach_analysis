@@ -233,9 +233,9 @@ if __name__ == "__main__":
         # Save columns to re-add later
         joblib.dump(columns_to_re_add, f'../data/models/season_{season}/columns_to_re_add.pkl')
 
-        all_col_names = get_feature_names(pipeline)
-        print("all column names = ", all_col_names)
-        joblib.dump(all_col_names, f'../data/models/season_{season}/feature_names.pkl')
+        # all_col_names = get_feature_names(pipeline)
+        # print("all column names = ", all_col_names)
+        # joblib.dump(all_col_names, f'../data/models/season_{season}/feature_names.pkl')
 
 
     except Exception as e:
