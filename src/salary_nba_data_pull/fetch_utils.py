@@ -1,108 +1,179 @@
+import threading
 import time
+import random
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache, wraps
+from http import HTTPStatus
+from typing import Callable
+import requests
 from nba_api.stats.endpoints import commonallplayers, commonplayerinfo, playercareerstats, leaguestandings
 from requests.exceptions import RequestException
 from json.decoder import JSONDecodeError
-import logging
+from joblib import Memory
+from unidecode import unidecode
+from tenacity import (
+    retry, retry_if_exception, wait_random_exponential,
+    stop_after_attempt, before_log
+)
 
-# Define the maximum requests allowed per minute and delay between requests
-MAX_REQUESTS_PER_MINUTE = 20
-DELAY_BETWEEN_REQUESTS = 3  # seconds
+REQUESTS_PER_MIN = 8   # ↓ a bit safer for long pulls (NBA suggests ≤10)
+_SEM = threading.BoundedSemaphore(REQUESTS_PER_MIN)
 
-def fetch_with_retry(endpoint, max_retries=5, initial_delay=5, max_delay=120, timeout=120, debug=False, **kwargs):
-    for attempt in range(max_retries):
-        start_time = time.time()
+# Set up joblib memory for caching API responses
+cache_dir = os.path.join(os.path.dirname(__file__), '../../data/cache/nba_api')
+memory = Memory(cache_dir, verbose=0)
+
+def _throttle():
+    """Global semaphore + sleep to stay under REQUESTS_PER_MIN."""
+    _SEM.acquire()
+    time.sleep(60 / REQUESTS_PER_MIN)
+    _SEM.release()
+
+def _needs_retry(exc: Exception) -> bool:
+    """Return True if we should retry."""
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        code = exc.response.status_code
+        if code in (HTTPStatus.TOO_MANY_REQUESTS, HTTPStatus.SERVICE_UNAVAILABLE):
+            return True
+    return isinstance(exc, (requests.ConnectionError, requests.Timeout))
+
+def _respect_retry_after(resp: requests.Response):
+    """Sleep for server‑suggested time if header present."""
+    if resp is not None and 'Retry-After' in resp.headers:
         try:
-            if debug:
-                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetching data using {endpoint.__name__} (Attempt {attempt + 1}) with parameters: {kwargs}")
-            data = endpoint(**kwargs, timeout=timeout).get_data_frames()
+            sleep = int(resp.headers['Retry-After'])
+            logging.warning("↺ server asked to wait %ss", sleep)
+            time.sleep(sleep)
+        except ValueError:
+            pass   # header unparsable, ignore
 
-            if debug and len(data) == 0:
-                print(f"Warning: No data returned from {endpoint.__name__}.")
-            if debug:
-                print(f"Raw API Response: {endpoint(**kwargs, timeout=timeout).get_json()}")
-                
-            time.sleep(DELAY_BETWEEN_REQUESTS)  # Add delay between requests
-            elapsed_time = time.time() - start_time
-            if debug:
-                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Successfully fetched data using {endpoint.__name__} in {elapsed_time:.2f} seconds")
-            return data[0] if isinstance(data, list) else data
-        except (RequestException, JSONDecodeError, KeyError) as e:
-            elapsed_time = time.time() - start_time
-            if debug:
-                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error occurred during fetching {endpoint.__name__}: {e}")
-                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Time taken for attempt {attempt + 1}: {elapsed_time:.2f} seconds")
-            if attempt == max_retries - 1:
-                if debug:
-                    logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Failed to fetch data from {endpoint.__name__} after {max_retries} attempts")
-                return None
-            delay = min(initial_delay * (2 ** attempt), max_delay)
-            if debug:
-                logging.debug(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Retrying in {delay} seconds...")
-            time.sleep(delay)
+def _make_retry(fn: Callable) -> Callable:
+    """Decorator to add tenacity retry with jitter + respect Retry-After."""
+    @retry(
+        retry=retry_if_exception(_needs_retry),
+        wait=wait_random_exponential(multiplier=2, max=60),
+        stop=stop_after_attempt(5),
+        before_sleep=before_log(logging.getLogger(__name__), logging.WARNING),
+        reraise=True,
+    )
+    @wraps(fn)
+    def _wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except requests.HTTPError as exc:
+            _respect_retry_after(exc.response)
+            raise
+    return _wrapper
 
+@memory.cache
+@_make_retry
+def fetch_with_retry(endpoint, *, timeout=90, debug=False, **kwargs):
+    """
+    Thread‑safe, rate‑limited, cached NBA‑Stats call with adaptive back‑off.
+    """
+    _throttle()
+    start = time.perf_counter()
+    resp = endpoint(timeout=timeout, **kwargs)
+    df = resp.get_data_frames()[0]
+    if debug:
+        logging.debug("✓ %s in %.1fs %s", endpoint.__name__,
+                      time.perf_counter() - start, kwargs)
+    return df
 
-def fetch_all_players(season, debug=False):
-    all_players_data = fetch_with_retry(commonallplayers.CommonAllPlayers, season=season, debug=debug)
-    all_players = {}
-    if all_players_data is not None:
-        for _, row in all_players_data.iterrows():
-            player_name = row['DISPLAY_FIRST_LAST'].strip().lower()
-            player_id = row['PERSON_ID']
-            team_id = row['TEAM_ID']
-            all_players[player_name] = {
-                'player_id': player_id,
-                'team_id': team_id
+@memory.cache
+def fetch_all_players(season: str, debug: bool = False) -> dict[str, dict]:
+    """Return {clean_name: {'player_id':…, 'team_id':…}} for *active* roster."""
+    roster_df = fetch_with_retry(
+        commonallplayers.CommonAllPlayers,
+        season=season,
+        is_only_current_season=1,        # <‑‑ key fix
+        league_id="00",
+        debug=debug,
+    )
+    players: dict[str, dict] = {}
+    if roster_df is not None:
+        for _, row in roster_df.iterrows():
+            clean = unidecode(row["DISPLAY_FIRST_LAST"]).strip().lower()
+            players[clean] = {
+                "player_id": int(row["PERSON_ID"]),
+                "team_id": int(row["TEAM_ID"]),
             }
-            if debug:
-                print(f"Added player to all_players: {player_name} (ID: {player_id}, Team ID: {team_id})")
-    else:
-        if debug:
-            print("Failed to retrieve any player data from commonallplayers endpoint.")
+    if debug:
+        print(f"[fetch_all_players] {len(players)} active players for {season}")
+    return players
+
+@lru_cache(maxsize=None)
+def fetch_season_players(season: str, debug: bool = False) -> dict[str, dict]:
+    """
+    Return {clean_name: {'player_id':…, 'team_id':…}} for *everyone who was
+    on a roster at any time during the given season*.
+    """
+    # call once for the whole database (not "current‑season only")
+    df = fetch_with_retry(
+        commonallplayers.CommonAllPlayers,
+        season=season,
+        is_only_current_season=0,         # <-- key change
+        league_id="00",
+        debug=debug,
+    )
+    players: dict[str, dict] = {}
+    if df is not None:
+        yr = int(season[:4])
+        # keep rows whose career window encloses this season
+        df = df[(df.FROM_YEAR.astype(int) <= yr) & (df.TO_YEAR.astype(int) >= yr)]
+        for _, row in df.iterrows():
+            clean = unidecode(row["DISPLAY_FIRST_LAST"]).strip().lower()
+            players[clean] = {
+                "player_id": int(row["PERSON_ID"]),
+                "team_id": int(row["TEAM_ID"]),
+            }
 
     if debug:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fetched {len(all_players)} players for season {season}")
-        # List some of the fetched players to verify the contents
-        for i, (name, details) in enumerate(all_players.items()):
-            if i < 5:  # Only print the first 5 players for brevity
-                print(f"Player: {name}, Details: {details}")
+        print(f"[fetch_season_players] {len(players)} players for {season}")
+    return players
 
-    return all_players
-
-
-
+@memory.cache
 def fetch_player_info(player_id, debug=False):
     return fetch_with_retry(commonplayerinfo.CommonPlayerInfo, player_id=player_id, debug=debug)
 
+@memory.cache
 def fetch_career_stats(player_id, debug=False):
     return fetch_with_retry(playercareerstats.PlayerCareerStats, player_id=player_id, debug=debug)
 
+@memory.cache
 def fetch_league_standings(season, debug=False):
     return fetch_with_retry(leaguestandings.LeagueStandings, season=season, debug=debug)
+
+def clear_cache():
+    """Clear the joblib memory cache."""
+    memory.clear()
 
 if __name__ == "__main__":
     # Example usage
     debug = True
     season = "2022-23"
     sample_player_name = "LeBron James"
-    
+
     # Fetch all players
     all_players = fetch_all_players(season, debug=debug)
     print(f"Total players fetched: {len(all_players)}")
-    
+
     # Fetch player info for a sample player
     if sample_player_name.lower() in all_players:
         sample_player_id = all_players[sample_player_name.lower()]['player_id']
         player_info = fetch_player_info(sample_player_id, debug=debug)
         print(f"Sample player info for {sample_player_name}:")
         print(player_info)
-        
+
         # Fetch career stats for the sample player
         career_stats = fetch_career_stats(sample_player_id, debug=debug)
         print(f"Sample player career stats for {sample_player_name}:")
         print(career_stats)
     else:
         print(f"Player {sample_player_name} not found in the {season} season data.")
-    
+
     # Fetch league standings
     standings = fetch_league_standings(season, debug=debug)
     print("League standings:")

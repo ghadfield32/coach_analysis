@@ -20,6 +20,8 @@ tqdm
 statsmodels
 nba_api
 requests
+requests-cache
+diskcache
 streamlit
 xgboost
 lightgbm
@@ -30,3 +32,5 @@ lxml
 IPython
 tabulate
 pyspark
+pyarrow
+unidecode
