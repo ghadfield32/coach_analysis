@@ -6,14 +6,15 @@
 1. [Introduction](#introduction)
 2. [Data Sources](#data-sources)
 3. [Project Structure](#project-structure)
-4. [Installation](#installation)
-5. [Usage](#usage)
-6. [Features](#features)
-7. [Methodology](#methodology)
-8. [Results and Insights](#results-and-insights)
-9. [Future Improvements](#future-improvements)
-10. [Contributing](#contributing)
-11. [License](#license)
+4. [Pipeline Architecture](#pipeline-architecture)
+5. [Installation](#installation)
+6. [Usage](#usage)
+7. [Features](#features)
+8. [Methodology](#methodology)
+9. [Results and Insights](#results-and-insights)
+10. [Future Improvements](#future-improvements)
+11. [Contributing](#contributing)
+12. [License](#license)
 
 ## Introduction
 
@@ -72,6 +73,77 @@ nba-salary-analysis/
 │
 └── README.md
 ```
+
+## Pipeline Architecture
+
+Our data pipeline has been modernized with a **split DAG architecture** for better reliability, maintainability, and monitoring:
+
+### 🏗️ DAG Structure
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│ nba_salary_     │    │ nba_advanced_    │    │ salary_cap_     │
+│ ingest          │    │ ingest           │    │ snapshot        │
+│ (Daily)         │    │ (Daily)          │    │ (Yearly)        │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────▼─────────────┐
+                    │    nba_data_loader        │
+                    │    (Daily)                │
+                    │    • ExternalTaskSensors  │
+                    │    • Validation           │
+                    │    • DuckDB Loading       │
+                    └───────────────────────────┘
+```
+
+### 📊 DAG Details
+
+| DAG | Schedule | Purpose | Retries | SLA |
+|-----|----------|---------|---------|-----|
+| `nba_salary_ingest` | Daily | Player & team salary scraping | 3 | 2h |
+| `nba_advanced_ingest` | Daily | Advanced metrics scraping | 2 | 1h |
+| `salary_cap_snapshot` | Yearly (July 1) | Salary cap history | 2 | 1h |
+| `injury_etl` | Monthly | Injury data processing | 1 | 30m |
+| `nba_data_loader` | Daily | Unified validation & loading | 2 | 3h |
+
+### 🎯 Benefits
+
+- **Isolated Failures**: One source failing doesn't block others
+- **Different Cadences**: Salary scraping daily, cap history yearly  
+- **Easier Maintenance**: Teams can iterate on one source independently
+- **Better Monitoring**: Granular SLAs and retry policies per source
+- **Faster DagBag Parsing**: Smaller DAG files load faster
+
+### 🔄 ESPN URL Update
+
+The ESPN fallback scraper has been updated to use the new URL pattern:
+- **Old**: `.../year/{year}/page/{page}`
+- **New**: `.../year/{year}/page/{page}/seasontype/4` (page optional for page 1)
+
+### 🚀 Usage
+
+```bash
+# Query the Parquet data lake with DuckDB
+python -c "
+import duckdb
+con = duckdb.connect('/workspace/data/nba_stats.duckdb')
+result = con.execute('SELECT COUNT(*) FROM nba_2024_25').fetchone()
+print(f'Loaded {result[0]} salary records')
+"
+
+# Run individual DAGs
+airflow dags trigger nba_salary_ingest --conf '{"season": "2024-25"}'
+airflow dags trigger nba_advanced_ingest --conf '{"season": "2024-25"}'
+```
+
+### 📈 Monitoring
+
+- **ExternalTaskSensors**: Wait for upstream DAGs with configurable timeouts
+- **Quality Gates**: Validation fails the DAG if data quality issues detected
+- **Email Alerts**: Notifications on failures with retry policies
+- **SLA Monitoring**: Track performance against service level agreements
 
 ## Installation
 

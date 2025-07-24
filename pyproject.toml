@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data_science"
+version = "0.0.1"
+description = "General data science/ML environment"
+authors = [{ name = "Geoffrey Hadfield" }]
+requires-python = ">=3.10,<3.12"   # stay on 3.10/3.11; 3.12 still shaky for some wheels
+
+dependencies = [
+  "numpy>=1.26",              # keep modern NumPy
+  "pandas>=2.2",
+  "scikit-learn>=1.5",
+  "joblib",
+  "matplotlib",
+  "seaborn",
+  "jupyterlab<5.0",
+  "ipykernel<6.30",
+  "dash",
+  "dash-bootstrap-components",
+  "plotly",
+  "opencv-python-headless",
+  "pillow",
+  "tqdm",
+  "statsmodels",
+  "streamlit",
+  "xgboost",
+  "lightgbm",
+  "requests",
+  "IPython",
+  "tabulate",
+  "pyarrow>=10.0.0",
+  "requests-cache",
+  "diskcache",
+  "unidecode",
+  "cpi>=2.0.0",
+  "lxml",
+  "duckdb>=0.10.0",
+  "apache-airflow>=2.9.0",
+  # ---- Explainability stack ----
+  "shap>=0.46.0",             # supports NumPy 2, so fine with 1.26+
+  "numba>=0.58.1,<0.61",      # 0.58.1 adds NumPy 1.26 support; 0.60 adds NumPy2
+  # llvmlite will be pulled transitively with the correct version
+  # ---- NBA tooling ----
+  "nba_api<=1.4.1",
+  "beautifulsoup4",
+]
+
+[project.optional-dependencies]
+spark = [
+  "pyspark",
+  "install-jdk>=1.1.0",
+]
+dev = [
+  "pytest",
+  "black",
+  "flake8",
+  "mypy",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+strict_optional = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+
+

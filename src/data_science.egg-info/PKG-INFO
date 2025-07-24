@@ -1,0 +1,47 @@
+Metadata-Version: 2.4
+Name: data_science
+Version: 0.0.1
+Summary: General data science/ML environment
+Author: Geoffrey Hadfield
+Requires-Python: <3.12,>=3.10
+Requires-Dist: numpy>=1.26
+Requires-Dist: pandas>=2.2
+Requires-Dist: scikit-learn>=1.5
+Requires-Dist: joblib
+Requires-Dist: matplotlib
+Requires-Dist: seaborn
+Requires-Dist: jupyterlab<5.0
+Requires-Dist: ipykernel<6.30
+Requires-Dist: dash
+Requires-Dist: dash-bootstrap-components
+Requires-Dist: plotly
+Requires-Dist: opencv-python-headless
+Requires-Dist: pillow
+Requires-Dist: tqdm
+Requires-Dist: statsmodels
+Requires-Dist: streamlit
+Requires-Dist: xgboost
+Requires-Dist: lightgbm
+Requires-Dist: requests
+Requires-Dist: IPython
+Requires-Dist: tabulate
+Requires-Dist: pyarrow>=10.0.0
+Requires-Dist: requests-cache
+Requires-Dist: diskcache
+Requires-Dist: unidecode
+Requires-Dist: cpi>=2.0.0
+Requires-Dist: lxml
+Requires-Dist: duckdb>=0.10.0
+Requires-Dist: apache-airflow>=2.9.0
+Requires-Dist: shap>=0.46.0
+Requires-Dist: numba<0.61,>=0.58.1
+Requires-Dist: nba_api<=1.4.1
+Requires-Dist: beautifulsoup4
+Provides-Extra: spark
+Requires-Dist: pyspark; extra == "spark"
+Requires-Dist: install-jdk>=1.1.0; extra == "spark"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: flake8; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
