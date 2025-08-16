@@ -28,19 +28,14 @@ def save_cache(cache):
         pickle.dump(cache, f)
 
 def get_champion(season, debug=False):
-    """Fetch the champion team for a given NBA season."""
-    try:
-        games = leaguegamefinder.LeagueGameFinder(season_nullable=season, season_type_nullable='Playoffs').get_data_frames()[0]
-        games['GAME_DATE'] = pd.to_datetime(games['GAME_DATE'])
-        last_game = games.sort_values('GAME_DATE').iloc[-2:]
-        winner = last_game[last_game['WL'] == 'W'].iloc[0]
-        if debug:
-            print(f"Champion for season {season}: {winner['TEAM_NAME']} ({winner['TEAM_ID']})")
-        return winner['TEAM_NAME']
-    except Exception as e:
-        if debug:
-            print(f"Error fetching champion for season {season}: {e}")
-        return None
+    """Fetch the champion team for a given NBA season (cached + retried)."""
+    from trade_impact.utils.nba_api_utils import get_champion_team_name, normalize_season
+    season_norm = normalize_season(season)
+    winner = get_champion_team_name(season_norm, timeout=90, retries=3, use_live=True, debug=debug)
+    if debug:
+        print(f"Champion for season {season_norm}: {winner}")
+    return winner
+
 
 def get_champion_team_stats(seasons, relevant_stats, debug=False):
     """Fetch and process champion team stats for the selected seasons, using caching."""
@@ -102,25 +97,23 @@ def fetch_player_id_by_name(player_name, debug=False):
         return None
 
 def fetch_season_data_by_year(year, debug=False):
-    if isinstance(year, str) and '-' in year:
-        year = int(year.split('-')[0])  # Extract the starting year if a season string is passed
-    elif not isinstance(year, int):
-        raise ValueError("Year should be an integer or a season string like '2021-22'")
-    
-    season = f"{year}-{str(year + 1)[-2:]}"
+    """Fetch league-wide player game logs for a given year or season string using retries/cache."""
+    from trade_impact.utils.nba_api_utils import get_playergamelogs_df, normalize_season
+    season_norm = normalize_season(year)
     if debug:
-        print(f"Fetching data for season: {season}")
+        print(f"Fetching data for season: {season_norm}")
     try:
-        player_logs = playergamelogs.PlayerGameLogs(season_nullable=season).get_data_frames()[0]
+        player_logs = get_playergamelogs_df(season_norm, timeout=90, retries=3, use_live=True, debug=debug)
     except Exception as e:
         if debug:
-            print(f"Error fetching data for season {season}: {e}")
+            print(f"Error fetching data for season {season_norm}: {e}")
         return None
-    player_logs['SEASON'] = season
+    player_logs['SEASON'] = season_norm
     player_logs['GAME_DATE'] = pd.to_datetime(player_logs['GAME_DATE'])
     if debug:
         print(f"Fetched season data with {len(player_logs)} records.")
     return player_logs
+
 
 
 def calculate_team_stats(player_data, period, relevant_stats, debug=False):
@@ -263,12 +256,7 @@ def simulate_game_logs(post_trade_data, player_averages, traded_players, no_trad
     
     return post_trade_data
 
-def get_players_for_team(team_name, season="2023-24"):
-    """Fetch players for a given team name."""
-    team_id = teams.find_teams_by_full_name(team_name)[0]['id']
-    team_players = playergamelogs.PlayerGameLogs(season_nullable=season).get_data_frames()[0]
-    team_players = team_players[team_players['TEAM_ID'] == team_id]
-    return sorted(team_players['PLAYER_NAME'].unique())
+
 
 def trade_impact_analysis(start_season, end_season, trade_date, traded_players, team_a_name, team_b_name, champion_seasons, relevant_stats, debug=False):
     player_data = pd.DataFrame()

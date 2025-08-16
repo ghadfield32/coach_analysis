@@ -31,19 +31,14 @@ def save_percentile_counts(percentile_counts_df):
         print(f"Top percentile counts saved to {CACHE_FILE_PATH}")
 
 def get_champion_for_percentile(season, debug=False):
-    """Fetch the champion team for a given NBA season."""
-    try:
-        games = leaguegamefinder.LeagueGameFinder(season_nullable=season, season_type_nullable='Playoffs').get_data_frames()[0]
-        games['GAME_DATE'] = pd.to_datetime(games['GAME_DATE'])
-        last_game = games.sort_values('GAME_DATE').iloc[-2:]
-        winner = last_game[last_game['WL'] == 'W'].iloc[0]
-        if debug:
-            print(f"Champion for season {season}: {winner['TEAM_NAME']} ({winner['TEAM_ID']})")
-        return winner['TEAM_NAME']
-    except Exception as e:
-        if debug:
-            print(f"Error fetching champion for season {season}: {e}")
-        return None
+    """Fetch the champion team for a given NBA season with cache and retries."""
+    from trade_impact.utils.nba_api_utils import get_champion_team_name, normalize_season
+    season_norm = normalize_season(season)
+    winner = get_champion_team_name(season_norm, timeout=90, retries=3, use_live=True, debug=debug)
+    if debug:
+        print(f"Champion for season {season_norm}: {winner}")
+    return winner
+
 
 def get_champions_for_percentile(start_year, end_year, debug=False):
     """Fetch champions for each season from start_year to end_year."""
@@ -125,21 +120,26 @@ def fetch_and_process_season_data(seasons, debug=False):
     return player_stats, league_percentiles, league_percentiles_ref
 
 def fetch_all_player_data(seasons, debug=False):
-    """Fetch player game logs data for all players across multiple seasons."""
+    """Fetch player game logs data for all players across multiple seasons with retries/cache."""
+    from trade_impact.utils.nba_api_utils import get_playergamelogs_df, normalize_season
     all_data = pd.DataFrame()
     for season in seasons:
+        season_norm = normalize_season(season)
         try:
-            player_logs = playergamelogs.PlayerGameLogs(season_nullable=season).get_data_frames()[0]
-            player_logs['SEASON'] = season
-            all_data = pd.concat([all_data, player_logs], ignore_index=True)
+            logs = get_playergamelogs_df(season_norm, timeout=90, retries=3, use_live=True, debug=debug)
+            all_data = pd.concat([all_data, logs], ignore_index=True)
             if debug:
-                print(f"Fetched {len(player_logs)} player logs for the league in season {season}")
+                print(f"Fetched {len(logs)} player logs for the league in season {season_norm}")
+            # gentle pacing to avoid rate limiting
+            time.sleep(0.5)
         except Exception as e:
             if debug:
-                print(f"Error fetching player data for the league in season {season}: {e}")
+                print(f"Error fetching player data for season {season_norm}: {e}")
+            # do not fill; continue so we can see exactly which seasons failed
     if debug:
-        print(f"Total logs fetched: {len(all_data)}")
+        print(f"Total logs fetched across requested seasons: {len(all_data)}")
     return all_data
+
 
 def calculate_player_stats(player_data, debug=False):
     """Calculate average player statistics from game logs."""

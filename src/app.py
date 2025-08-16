@@ -1,6 +1,5 @@
 
 import os
-print("os.getcwd() =", os.getcwd())
 import streamlit as st
 import pandas as pd
 import seaborn as sns
@@ -475,23 +474,47 @@ def main():
 
     elif page == "Model Results":
         st.header("Model Results")
-        model_choice = st.selectbox("Select Model", ["Random Forest", "XGBoost"])
-        st.subheader(f"{model_choice} Model Results")
-        display_model_metrics(model_save_path)
-        
-        # Feature importance
+
+        # 1) Metrics table (loaded from evaluation_results.pkl)
+        metrics_df = display_model_metrics(model_save_path)
+        if metrics_df.empty:
+            st.warning("No evaluation metrics found for this season. Train the models first.")
+        else:
+            st.subheader("Model Performance Metrics")
+            st.dataframe(metrics_df)
+
+        # 2) Choose model to inspect feature importance
+        model_choice = st.selectbox("Select model for feature importance", ["Random Forest", "XGBoost"])
+
+        if model_choice == "Random Forest":
+            model = rf_model
+        else:
+            model = xgb_model
+
+        # 3) Feature count
+        from salary_model_training.util_functions import get_feature_count
+        n_features = get_feature_count(model)
+        if n_features > 0:
+            st.write(f"**Number of features in model:** {n_features}")
+        else:
+            st.write("**Number of features in model:** (not available for this estimator)")
+
+        # 4) Feature importance: filtered DF + chart
         if model_choice == "Random Forest":
             st.subheader("Random Forest Feature Importance")
-            feature_importances_df = display_feature_importance(rf_model, feature_names, ['Position_', 'Team_'])
+            feature_importances_df = display_feature_importance(model, feature_names, ['Position_', 'Team_'])
         else:
             st.subheader("XGBoost Feature Importance")
-            feature_importances_df = display_feature_importance(xgb_model, feature_names, ['Position_', 'Team_'])
+            feature_importances_df = display_feature_importance(model, feature_names, ['Position_', 'Team_'])
 
-        # Display the filtered feature importance dataframe
-        st.dataframe(feature_importances_df)
-        # Plot and display the feature importance bar chart
-        fig = plot_feature_importance(feature_importances_df, model_choice)
-        st.pyplot(fig)
+        if feature_importances_df is None or feature_importances_df.empty:
+            st.info("This model does not expose feature importances or no importances were computed.")
+        else:
+            st.dataframe(feature_importances_df)
+
+            # Bar chart
+            fig = plot_feature_importance(feature_importances_df, model_choice)
+            st.pyplot(fig)
 
     elif page == "Salary Evaluation":
         st.header("Salary Evaluation")
@@ -516,4 +539,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

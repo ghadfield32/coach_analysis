@@ -54,47 +54,79 @@ def check_or_train_model(file_path, model_save_path, season_year):
 
 
 
-def display_model_metrics(model_save_path):
-    """Display saved model performance metrics for both Random Forest and XGBoost."""
-    eval_results = load_evaluation_metrics(model_save_path)
+def build_metrics_dataframe(eval_results: dict) -> pd.DataFrame:
+    """
+    Convert the persisted evaluation_results dict to a tidy DataFrame:
+    index = model name, columns = RMSE, MAE, R2, MSE
+    """
+    if not eval_results:
+        return pd.DataFrame()
 
-    if eval_results:
-        print("\nModel Performance Metrics:")
-        print(f"Random Forest RMSE: {eval_results['rf_rmse']:.4f}")
-        print(f"Random Forest MAE: {eval_results['rf_mae']:.4f}")
-        print(f"Random Forest R²: {eval_results['rf_r2']:.4f}")
-        print(f"Random Forest MSE: {eval_results['rf_mse']:.4f}")
-        
-        print(f"\nXGBoost RMSE: {eval_results['xgb_rmse']:.4f}")
-        print(f"XGBoost MAE: {eval_results['xgb_mae']:.4f}")
-        print(f"XGBoost R²: {eval_results['xgb_r2']:.4f}")
-        print(f"XGBoost MSE: {eval_results['xgb_mse']:.4f}")
+    rows = []
+    rows.append({
+        "Model": "Random Forest",
+        "RMSE": eval_results.get("rf_rmse"),
+        "MAE":  eval_results.get("rf_mae"),
+        "R2":   eval_results.get("rf_r2"),
+        "MSE":  eval_results.get("rf_mse"),
+    })
+    rows.append({
+        "Model": "XGBoost",
+        "RMSE": eval_results.get("xgb_rmse"),
+        "MAE":  eval_results.get("xgb_mae"),
+        "R2":   eval_results.get("xgb_r2"),
+        "MSE":  eval_results.get("xgb_mse"),
+    })
+    df = pd.DataFrame(rows).set_index("Model")
+    # Optional rounding for nicer display
+    return df.round(4)
+
+
+def display_model_metrics(model_save_path: str) -> pd.DataFrame:
+    """
+    Load and RETURN model performance metrics as a DataFrame.
+    (No printing; the caller decides how to render.)
+    """
+    eval_results = load_evaluation_metrics(model_save_path)
+    if not eval_results:
+        # Return empty DataFrame to signal 'no metrics found'
+        return pd.DataFrame()
+    return build_metrics_dataframe(eval_results)
+
+
+def get_feature_count(model) -> int:
+    """
+    Return number of features used by a fitted model (based on .feature_importances_ length).
+    If the model doesn't expose importances, return -1.
+    """
+    if hasattr(model, "feature_importances_"):
+        return len(model.feature_importances_)
+    return -1
+
+
+def display_feature_importance(model, feature_names, categorical_features):
+    """
+    (UNCHANGED behavior except we no longer print counts)
+    Displays feature importance for the selected model, filtering out categorical features.
+    Returns a DataFrame sorted by importance.
+    """
+    if hasattr(model, "feature_importances_"):
+        n_features = len(model.feature_importances_)
+        importance_df = pd.DataFrame({
+            'Feature': feature_names[:n_features],
+            'Importance': model.feature_importances_
+        }).sort_values(by="Importance", ascending=False)
+
+        # Filter out categorical features like Position_/Team_ one-hots
+        filtered_importance_df = filter_categorical_features(importance_df, categorical_features)
+        return filtered_importance_df
     else:
-        print("No evaluation metrics found.")
+        return None
 
 def filter_categorical_features(importance_df, categorical_features):
     """Filter out categorical features from the importance dataframe."""
     filtered_df = importance_df[~importance_df['Feature'].str.startswith(tuple(categorical_features))]
     return filtered_df
-
-def display_feature_importance(model, feature_names, categorical_features):
-    """Displays feature importance for the selected model, filtering out categorical features."""
-    if hasattr(model, "feature_importances_"):
-        n_features = len(model.feature_importances_)
-        print(f"Number of features in model: {n_features}")
-        
-        # Create the DataFrame of feature importances
-        importance_df = pd.DataFrame({
-            'Feature': feature_names[:n_features],  # Adjust if feature names mismatch
-            'Importance': model.feature_importances_
-        }).sort_values(by="Importance", ascending=False)
-        
-        # Filter out categorical features
-        filtered_importance_df = filter_categorical_features(importance_df, categorical_features)
-        return filtered_importance_df
-    else:
-        print("This model does not support feature importance visualization.")
-        return None
 
 def plot_feature_importance(feature_importances_df, model_name):
     """Function to plot the feature importance as a bar chart."""
@@ -206,7 +238,12 @@ def main_test_function():
     logger.debug(f"Predictions DataFrame:\n{predictions_df.head()}")
 
     # Test display_model_metrics
-    display_model_metrics(model_save_path)
+    metrics_df = display_model_metrics(model_save_path)
+    if not metrics_df.empty:
+        print("\nModel Performance Metrics:")
+        print(metrics_df)
+    else:
+        print("No evaluation metrics found.")
 
     # Load a model for testing feature importance
     rf_model_path = f'{model_save_path}/best_rf_model.pkl'
@@ -229,5 +266,6 @@ def main_test_function():
 
 if __name__ == "__main__":
     main_test_function()
+
 
 
