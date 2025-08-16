@@ -28,6 +28,7 @@ from salary_nba_data_pull.process_utils import (
 from salary_nba_data_pull.data_utils import (
     clean_dataframe,
     validate_data,
+    write_season_player_index,
 )
 from salary_nba_data_pull.settings import DATA_PROCESSED_DIR
 
@@ -442,6 +443,9 @@ def update_data(existing_data,
         merged.to_parquet(parquet_path, index=False)
         if helper_debug:
             print(f"[update_data] wrote {parquet_path}")
+
+        # Generate season player index for fast UI access
+        _ = write_season_player_index(merged, season, base_dir=output_base, debug=helper_debug)
 
         out_frames.append(merged)
         season_summaries.append(f"{season}: {len(merged)} rows")

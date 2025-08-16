@@ -3,9 +3,9 @@
 import streamlit as st
 import pandas as pd
 from nba_api.stats.static import teams
-from nba_api.stats.endpoints import playergamelogs
 from datetime import date
 from trade_impact.combined_trade_analysis import combined_trade_analysis
+from streamlit_app_helpers import get_players_for_season_fast, check_network_connectivity
 
 # --- REPLACE this helper; keep the name used by the app ---
 def convert_season_format(year):
@@ -17,59 +17,100 @@ def convert_season_format(year):
     return normalize_season(year)
 
 
-
 def get_players_for_team(team_name, season="2023-24", *, use_live: bool = True, debug: bool = False):
     """
-    Prefer CommonTeamRoster (light). If it fails and no roster cache exists,
-    derive roster from league PlayerGameLogs cache for the season.
+    Fast + robust players list for a specific team in a season.
+    Priority:
+      1) Season index (local parquet): [Player, PlayerID, Team, TeamID]
+      2) Authoritative fallback: CommonTeamRoster(team_id, season)
+    No filling/masking. Heavily instrumented for diagnostics.
     """
-    from trade_impact.utils.nba_api_utils import (
-        get_team_id_by_full_name,
-        get_commonteamroster_df,
-        get_playergamelogs_df,
-        normalize_season,
-    )
+    import pandas as pd
+    from nba_api.stats.static import teams as _static_teams
+    from trade_impact.utils.nba_api_utils import normalize_season
+    from streamlit_app_helpers import get_players_for_season_fast
+    from salary_nba_data_pull.fetch_utils import fetch_team_roster
 
     season_norm = normalize_season(season)
-    team_id = get_team_id_by_full_name(team_name)
-    if team_id is None:
+
+    # Resolve team metadata
+    all_teams = _static_teams.get_teams()
+    by_full = {t["full_name"].casefold(): t for t in all_teams}
+    by_abbr = {t["abbreviation"].casefold(): t for t in all_teams}
+    meta = by_full.get(team_name.casefold()) or by_abbr.get(team_name.casefold())
+    if meta is None:
+        if debug:
+            print(f"[get_players_for_team] cannot resolve team metadata for '{team_name}'")
         return []
+    team_id = int(meta["id"]); abbr = meta["abbreviation"]; full = meta["full_name"]
 
-    # 1) Try roster endpoint (with fallback to cache inside)
-    try:
-        roster = get_commonteamroster_df(team_id, season_norm, use_live=use_live, debug=debug)
-        if "PLAYER" in roster.columns and roster["PLAYER"].notna().any():
-            return sorted(roster["PLAYER"].dropna().astype(str).unique().tolist())
+    # Try the season index first (fast path)
+    idx = get_players_for_season_fast(season_norm, debug=debug).copy()
+    if not idx.empty:
         if debug:
-            print(f"[get_players_for_team] No players in roster dataframe; will try logs fallback")
-    except Exception as e:
+            print(f"[get_players_for_team] source=index  rows={len(idx)}  "
+                  f"cols={list(idx.columns)}  season={season_norm} team={full}({team_id})")
+        players = []
+        try:
+            mask = pd.Series(False, index=idx.index)
+            if "TeamID" in idx.columns and idx["TeamID"].notna().any():
+                mask |= (idx["TeamID"].astype("Int64") == team_id)
+            if (not mask.any()) and ("Team" in idx.columns):
+                tser = idx["Team"].astype(str)
+                mask |= tser.str.casefold().eq(full.casefold()) | tser.str.upper().eq(abbr.upper())
+            players = (idx.loc[mask, ["Player", "PlayerID"]]
+                          .dropna(subset=["Player"])
+                          .drop_duplicates()
+                          .sort_values("Player")["Player"].tolist())
+            if debug:
+                via_id = int((idx.get("TeamID", pd.Series(dtype="Int64")).astype("Int64") == team_id).sum()) if "TeamID" in idx.columns else -1
+                via_lbl = 0
+                if "Team" in idx.columns:
+                    tser = idx["Team"].astype(str)
+                    via_lbl = int((tser.str.casefold().eq(full.casefold()) | tser.str.upper().eq(abbr.upper())).sum())
+                print(f"[get_players_for_team] index-match via TeamID={via_id}, via label≈{via_lbl}, final={len(players)}")
+        except Exception as e:
+            if debug:
+                print(f"[get_players_for_team][index-path][ERROR] {e}")
+            players = []
+        # Check if index returned a reasonable team size
+        MIN_TEAM_SIZE = 8  # Reasonable minimum for a full roster
+        if len(players) >= MIN_TEAM_SIZE:
+            if debug:
+                print(f"[get_players_for_team] using index result ({len(players)} players)")
+            return players
+        elif len(players) > 0:
+            if debug:
+                print(f"[get_players_for_team] index returned only {len(players)} players, trying roster fallback")
+
+    # Authoritative fallback: CommonTeamRoster
+    if debug:
+        print(f"[get_players_for_team] source=CommonTeamRoster fallback  season={season_norm} team={full}({team_id})")
+    roster = fetch_team_roster(team_id=team_id, season=season_norm, debug=debug)
+    if roster.empty:
         if debug:
-            print(f"[get_players_for_team] roster fetch error: {e}")
-
-    # 2) Derive from season logs (works if logs cache was prewarmed or fetched once)
-    try:
-        logs = get_playergamelogs_df(season_norm, use_live=use_live, debug=debug)
-        if "TEAM_NAME" in logs.columns and "PLAYER_NAME" in logs.columns:
-            derived = logs.loc[logs["TEAM_NAME"] == team_name, "PLAYER_NAME"].dropna().astype(str).unique().tolist()
-            if derived:
-                return sorted(derived)
-    except Exception as e:
+            print(f"[get_players_for_team] roster fallback returned 0 rows")
+        # Return whatever the index had as last resort
+        return players if 'players' in locals() else []
+    
+    name_col = "PLAYER" if "PLAYER" in roster.columns else None
+    if name_col is None:
         if debug:
-            print(f"[get_players_for_team] logs fallback error: {e}")
-
-    # 3) Final attempt: cache-only logs (don’t touch network)
-    try:
-        logs = get_playergamelogs_df(season_norm, use_live=False, debug=debug)
-        if "TEAM_NAME" in logs.columns and "PLAYER_NAME" in logs.columns:
-            derived = logs.loc[logs["TEAM_NAME"] == team_name, "PLAYER_NAME"].dropna().astype(str).unique().tolist()
-            if derived:
-                return sorted(derived)
-    except Exception as e:
+            print(f"[get_players_for_team] roster columns unexpected: {list(roster.columns)}")
+        # Return whatever the index had as last resort
+        return players if 'players' in locals() else []
+    
+    roster_players = roster[[name_col]].dropna().drop_duplicates().sort_values(name_col)[name_col].tolist()
+    if debug:
+        print(f"[get_players_for_team] roster fallback returned {len(roster_players)} players")
+    
+    # Prefer roster result if it's substantial, otherwise fall back to index
+    if len(roster_players) >= MIN_TEAM_SIZE:
+        return roster_players
+    else:
         if debug:
-            print(f"[get_players_for_team] cache-only logs fallback error: {e}")
-
-    return []
-
+            print(f"[get_players_for_team] roster fallback also sparse ({len(roster_players)}), using index result")
+        return players if 'players' in locals() else roster_players
 
 
 def get_trade_season(trade_date):
@@ -119,21 +160,16 @@ def get_unique_game_dates(season, *, use_live: bool = True, debug: bool = False)
     from trade_impact.utils.nba_api_utils import get_playergamelogs_df, normalize_season
 
     season_norm = normalize_season(season)
-    if debug:
-        print(f"[get_unique_game_dates] season={season_norm} use_live={use_live}")
-
-    logs = get_playergamelogs_df(season_norm, timeout=90, retries=3, use_live=use_live, debug=debug)
-    if "GAME_DATE" not in logs.columns:
+    logs = get_playergamelogs_df(season_norm, use_live=use_live, debug=debug)
+    
+    if "GAME_DATE" not in logs.columns or logs.empty:
         if debug:
-            print(f"[get_unique_game_dates] 'GAME_DATE' missing. Columns={list(logs.columns)}")
+            print(f"[get_unique_game_dates] No game dates found for {season_norm}")
         return []
-
-    dates = pd.to_datetime(logs["GAME_DATE"], errors="coerce").dt.date.dropna().unique().tolist()
-    dates_sorted = sorted(dates)
-
-    if debug:
-        print(f"[get_unique_game_dates] unique_dates={len(dates_sorted)} sample={dates_sorted[:5]}")
-    return dates_sorted
+    
+    # Convert to date objects and get unique sorted dates
+    dates = pd.to_datetime(logs["GAME_DATE"]).dt.date.unique()
+    return sorted(dates)
 
 
 
@@ -146,6 +182,10 @@ def trade_impact_simulator_app(selected_season="2023"):
     st.sidebar.subheader("Data Source")
     use_live_api = st.sidebar.checkbox("Use live NBA API", value=True,
         help="Uncheck to use cached data only. If live calls fail, cached data will be used when available.")
+    
+    # Debug option for troubleshooting
+    debug_mode = st.sidebar.checkbox("Enable Debug Mode", value=False,
+        help="Show detailed debug information in the console/logs for troubleshooting team player loading issues.")
 
     st.markdown("""
     ## About This App
@@ -200,13 +240,13 @@ def trade_impact_simulator_app(selected_season="2023"):
 
     # Safely populate player lists using cached, lightweight calls
     try:
-        players_a_options = get_players_for_team(team_a_name, formatted_season, use_live=use_live_api, debug=True)
+        players_a_options = get_players_for_team(team_a_name, formatted_season, use_live=use_live_api, debug=debug_mode)
     except Exception as e:
         players_a_options = []
         st.warning(f"Could not load roster for {team_a_name}: {e}")
 
     try:
-        players_b_options = get_players_for_team(team_b_name, formatted_season, use_live=use_live_api, debug=True)
+        players_b_options = get_players_for_team(team_b_name, formatted_season, use_live=use_live_api, debug=debug_mode)
     except Exception as e:
         players_b_options = []
         st.warning(f"Could not load roster for {team_b_name}: {e}")

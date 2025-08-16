@@ -9,7 +9,7 @@ from functools import lru_cache, wraps
 from http import HTTPStatus
 from typing import Callable
 import requests
-from nba_api.stats.endpoints import commonallplayers, commonplayerinfo, playercareerstats, leaguestandings
+from nba_api.stats.endpoints import commonallplayers, commonplayerinfo, playercareerstats, leaguestandings, commonteamroster
 from requests.exceptions import RequestException
 from json.decoder import JSONDecodeError
 from joblib import Memory
@@ -36,9 +36,97 @@ except Exception:
 REQUESTS_PER_MIN = 8   # ↓ a bit safer for long pulls (NBA suggests ≤10)
 _SEM = threading.BoundedSemaphore(REQUESTS_PER_MIN)
 
-# Set up joblib memory for caching API responses
-cache_dir = os.path.join(os.path.dirname(__file__), '../../data/cache/nba_api')
+# --- cache dir with safe fallback for cloud environments ---
+import tempfile
+from pathlib import Path
+
+def _pick_cache_dir(preferred: str) -> str:
+    """
+    Choose a writable cache directory. Fall back to /tmp if needed.
+    Prints diagnostics; does not mask errors.
+    """
+    try_dir = Path(__file__).resolve().parent / preferred
+    try:
+        try_dir.mkdir(parents=True, exist_ok=True)
+        test = try_dir / ".write_test"
+        with open(test, "w") as f:
+            f.write("ok")
+        test.unlink(missing_ok=True)
+        print(f"[nba_api cache] using {try_dir}")
+        return str(try_dir)
+    except Exception as e:
+        tmp = Path(tempfile.gettempdir()) / "nba_api_cache"
+        tmp.mkdir(parents=True, exist_ok=True)
+        print(f"[nba_api cache] WARNING: {try_dir} not writable → falling back to {tmp} ({e})")
+        return str(tmp)
+
+cache_dir = _pick_cache_dir("../../data/cache/nba_api")
 memory = Memory(cache_dir, verbose=0)
+
+# --- quick environment/network diagnostics ---
+def network_env_diagnostics(*, timeout_sec: int = 5) -> dict:
+    """
+    Smoke test for outbound connectivity and stats.nba.com reachability.
+    No filling; returns a dict of raw results.
+    """
+    out = {"google_204": None, "nba_stats": None, "errors": []}
+    try:
+        r = requests.get("https://www.google.com/generate_204", timeout=timeout_sec)
+        out["google_204"] = getattr(r, "status_code", None)
+    except Exception as e:
+        out["errors"].append(f"google_204: {type(e).__name__}: {e}")
+
+    try:
+        hdr = {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://stats.nba.com/",
+            "Origin": "https://stats.nba.com",
+        }
+        r = requests.get("https://stats.nba.com", headers=hdr, timeout=timeout_sec)
+        out["nba_stats"] = getattr(r, "status_code", None)
+    except Exception as e:
+        out["errors"].append(f"stats_nba: {type(e).__name__}: {e}")
+
+    print(f"[net diag] {out}")
+    return out
+
+
+def get_players_for_season_fast(season: str,
+                                *,
+                                debug: bool = True) -> pd.DataFrame:
+    """
+    UI helper: return a tiny DataFrame [Player, PlayerID, Team, TeamID] for the season.
+    Priority:
+      1) local season index (instant)
+      2) one roster call via nba_api (guarded, with diagnostics)
+    No gamelogs. No filling.
+    """
+    from salary_nba_data_pull.data_utils import read_season_player_index
+    
+    idx = read_season_player_index(season, debug=debug)
+    if not idx.empty:
+        return idx[["Player","PlayerID","Team","TeamID"]].drop_duplicates().reset_index(drop=True)
+
+    # Fallback: make exactly ONE roster call (lightweight) with diagnostics
+    diag = network_env_diagnostics(timeout_sec=5)
+    if diag.get("nba_stats") not in (200, 301, 302):
+        # Cloud likely blocked or unreachable; fail fast with a clear message
+        print(f"[players-fast] stats.nba.com not reachable (diag={diag}); returning empty result.")
+        return pd.DataFrame(columns=["Player","PlayerID","Team","TeamID"])
+
+    # Otherwise, try the cached / rate-limited commonallplayers path
+    roster = fetch_season_players(season, debug=debug)
+    rows = []
+    for key, meta in roster.items():
+        rows.append({
+            "Player": key.upper(),
+            "PlayerID": meta.get("player_id"),
+            "Team": None,          # not known without career row; we don't guess
+            "TeamID": meta.get("team_id"),
+        })
+    out = pd.DataFrame(rows)
+    print(f"[players-fast] {season}: built {len(out)} players from roster fallback")
+    return out
 
 def _throttle():
     """Global semaphore + sleep to stay under REQUESTS_PER_MIN."""
@@ -118,6 +206,33 @@ def fetch_all_players(season: str, debug: bool = False) -> dict[str, dict]:
     if debug:
         print(f"[fetch_all_players] {len(players)} active players for {season}")
     return players
+
+@memory.cache
+def fetch_team_roster(team_id: int, season: str, *, timeout: int = 90, debug: bool = False) -> pd.DataFrame:
+    """
+    Authoritative team roster for a (team_id, season) using CommonTeamRoster.
+    Returns columns at least: PLAYER, PERSON_ID (PLAYER_ID in some versions).
+    No filling; empty DataFrame if endpoint returns none.
+    """
+    try:
+        resp = commonteamroster.CommonTeamRoster(team_id=team_id, season=season, timeout=timeout)
+        dfs = resp.get_data_frames()
+        if not dfs:
+            if debug:
+                print(f"[fetch_team_roster] empty dfs for team_id={team_id}, season={season}")
+            return pd.DataFrame(columns=["PLAYER", "PERSON_ID"])
+        df = dfs[0].copy()
+        if "PLAYER_ID" in df.columns and "PERSON_ID" not in df.columns:
+            df = df.rename(columns={"PLAYER_ID": "PERSON_ID"})
+        if debug:
+            print(f"[fetch_team_roster] team_id={team_id}, season={season}, rows={len(df)} cols={list(df.columns)}")
+            print(df.head(8).to_string(index=False))
+        return df
+    except Exception as e:
+        if debug:
+            print(f"[fetch_team_roster][ERROR] team_id={team_id}, season={season}: {e}")
+        return pd.DataFrame(columns=["PLAYER", "PERSON_ID"])
+
 
 @lru_cache(maxsize=None)
 def fetch_season_players(season: str, debug: bool = False) -> dict[str, dict]:

@@ -350,6 +350,17 @@ def main():
     st.set_page_config(page_title="NBA Salary Prediction, Analysis, and Simulator", layout="wide")
     st.title("NBA Salary Prediction, Data Analysis, and Trade Impact Simulator")
 
+    # Network diagnostics for cloud environments
+    try:
+        from streamlit_app_helpers import check_network_connectivity
+        network_status = check_network_connectivity(debug=True)
+        if network_status.get("errors"):
+            st.warning("⚠️ Network connectivity issues detected. Some features may be limited.")
+            if st.checkbox("Show network diagnostics"):
+                st.json(network_status)
+    except Exception as e:
+        st.warning(f"⚠️ Could not perform network diagnostics: {e}")
+
     # Load the data
     file_path = 'data/processed/nba_player_data_final_inflated.csv'
     data = pd.read_csv(file_path)

@@ -10,6 +10,52 @@ from salary_nba_data_pull.quality import (
 )
 from salary_nba_data_pull.settings import DATA_PROCESSED_DIR
 
+def write_season_player_index(df_season: pd.DataFrame,
+                              season: str,
+                              base_dir: Path | str = DATA_PROCESSED_DIR,
+                              *,
+                              debug: bool = True) -> Path:
+    """
+    Persist a minimal index for UI: Season, Team, TeamID, Player, PlayerID.
+    No filling; if required cols are missing, prints and writes nothing.
+    """
+    need = {"Season", "Team", "TeamID", "Player", "PlayerID"}
+    missing = [c for c in need if c not in df_season.columns]
+    out_dir = Path(base_dir) / "season_index"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"season={season}.parquet"
+
+    if missing:
+        if debug:
+            print(f"[season-index] {season}: missing columns {missing} → not writing index")
+        return out_path  # nothing written
+
+    tiny = (df_season.loc[:, ["Season","Team","TeamID","Player","PlayerID"]]
+                     .dropna(how="all")
+                     .drop_duplicates())
+
+    if debug:
+        print(f"[season-index] {season}: writing {len(tiny)} rows to {out_path}")
+    tiny.to_parquet(out_path, index=False)
+    return out_path
+
+
+def read_season_player_index(season: str,
+                             base_dir: Path | str = DATA_PROCESSED_DIR,
+                             *,
+                             debug: bool = True) -> pd.DataFrame:
+    """
+    Load the small season index if available; otherwise returns empty df.
+    """
+    path = Path(base_dir) / "season_index" / f"season={season}.parquet"
+    if not path.exists():
+        if debug:
+            print(f"[season-index] {season}: index not found at {path}")
+        return pd.DataFrame(columns=["Season","Team","TeamID","Player","PlayerID"])
+    if debug:
+        print(f"[season-index] {season}: loaded index from {path}")
+    return pd.read_parquet(path)
+
 # Columns that must *always* be present – even if currently all NaN
 CRITICAL_ID_COLS: set[str] = {"PlayerID", "TeamID"}
 
