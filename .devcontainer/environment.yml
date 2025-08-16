@@ -1,7 +1,6 @@
 name: data_science
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python=3.10
   - numpy
@@ -27,15 +26,15 @@ dependencies:
   - statsmodels
   - openjdk
   - pip:
-    - nba_api
-    - requests
-    - streamlit
-    - xgboost
-    - lightgbm
-    - shap
-    - beautifulsoup4
-    - cpi
-    - lxml
-    - IPython
-    - tabulate
-    - pyspark
+      - nba_api
+      - requests
+      - streamlit
+      - xgboost
+      - lightgbm
+      - shap
+      - beautifulsoup4
+      - cpi
+      - lxml
+      - IPython
+      - tabulate
+      - pyspark

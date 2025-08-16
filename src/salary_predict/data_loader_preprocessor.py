@@ -72,8 +72,9 @@ def engineer_features(data):
     # Drop columns used in feature creation or deemed less relevant
     columns_to_drop = ['GP', '2PA', 'OBPM', 'BPM', 'DBPM', '2P', 'GS', 'PTS', 'AST', 'TRB', 'STL', 'BLK',
                        'TOV', 'MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '2P', '2PA', 'FT', 'FTA', 'ORB', 'DRB', 'TRB',
-                       'TS%', 'ORB%', 'DRB%', 'TRB%', 'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'Luxury Tax', '1st Apron', 'BAE',
+                       'TS%', 'ORB%', 'DRB%', 'TRB%', 'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'Luxury Tax', '1st Apron',
                        'Standard /Non-Taxpayer', 'Taxpayer', 'Team Room /Under Cap', 'WS', 'DWS', 'WS/48', 'PF', 'OWS', 'Injured']
+    # Note: BAE removed from drop list to preserve cap-related data
     data.drop(columns_to_drop, axis=1, errors='ignore', inplace=True)
     print("New features added.")
     return data

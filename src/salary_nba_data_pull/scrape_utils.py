@@ -225,7 +225,13 @@ ADV_METRIC_COLS = [
 def _season_advanced_df(season: str) -> pd.DataFrame:
     """
     Thread‑safe, memoised download of the *season‑wide* advanced‑stats table.
-
+    
+    Root-cause fixes:
+      • Use bytes (resp.content) instead of text to avoid encoding guesswork
+      • Let lxml parser handle UTF-8 charset from page's <meta> tag
+      • Use centralized name normalization
+      • Validate encoding with known Unicode names
+    
     The first thread to request a given season does the HTTP work while holding
     a lock; all others simply wait for the result instead of firing duplicate
     requests. The DataFrame is cached in‑process for the life of the run.
@@ -240,13 +246,38 @@ def _season_advanced_df(season: str) -> pd.DataFrame:
         end_year = int(season[:4]) + 1
         url = f"https://www.basketball-reference.com/leagues/NBA_{end_year}_advanced.html"
         print(f"[adv] fetching {url}")
+        
+        # Get raw bytes to avoid encoding guesswork
         resp = session.get(url, headers=UA, timeout=30)
         resp.raise_for_status()
-
-        df = pd.read_html(StringIO(resp.text), header=0)[0]
-        df = df[df.Player != "Player"]          # drop repeated header rows
-        df["player_key"] = df.Player.map(_normalise_name)
-
+        raw_content = resp.content  # Use bytes, not resp.text
+        
+        # Parse tables from bytes - let lxml handle charset detection
+        from io import BytesIO
+        dfs = pd.read_html(BytesIO(raw_content), flavor="lxml", header=0)
+        
+        if not dfs:
+            raise ValueError(f"No tables found at {url}")
+        
+        # Find the table with Player column
+        df = next((t for t in dfs if "Player" in t.columns), dfs[0]).copy()
+        
+        # Remove repeated header rows that BBR embeds
+        if "Player" in df.columns:
+            df = df[df["Player"] != "Player"]
+        
+        # Use centralized normalization
+        from salary_nba_data_pull.name_utils import normalize_name, validate_name_encoding
+        df["player_key"] = df["Player"].map(normalize_name)
+        
+        # Validate encoding (will raise if critical issues detected)
+        try:
+            validate_name_encoding(df, season, debug=True)
+        except AssertionError as e:
+            print(f"[adv] WARNING: {e}")
+            # Continue anyway but log the issue
+        
+        # Convert numeric columns
         avail = [c for c in ADV_METRIC_COLS if c in df.columns]
         if avail:
             df[avail] = df[avail].apply(pd.to_numeric, errors="coerce")
@@ -261,13 +292,33 @@ def scrape_advanced_metrics(player_name: str,
                             debug: bool = False) -> dict:
     """
     O(1) lookup in the cached season DataFrame – zero extra HTTP traffic.
+    Uses a shared normalizer (nba_utils.normalize_name) to reduce mismatches.
+    Prints closest suggestions when no row is found (no filling).
     """
+    import difflib
+
+    # Prefer the shared normalizer from nba_utils; fall back to local
+    try:
+        from api.src.airflow_project.utils.nba_utils import normalize_name as _norm
+    except Exception:
+        _norm = _normalise_name
+
     df = _season_advanced_df(season)
-    key = _normalise_name(player_name)
+    # Ensure the season table uses the same normalizer
+    if "player_key" not in df.columns or df["player_key"].isna().all():
+        df = df.copy()
+        df["player_key"] = df["Player"].map(_norm)
+
+    key = _norm(player_name)
     row = df.loc[df.player_key == key]
+
     if row.empty:
         if debug:
-            print(f"[adv] no advanced stats for {player_name} in {season}")
+            # Provide top-3 closest suggestions to help diagnose mismatches
+            all_keys = df["player_key"].dropna().unique().tolist()
+            suggestions = difflib.get_close_matches(key, all_keys, n=3, cutoff=0.75)
+            print(f"[adv] no advanced stats for '{player_name}' (key='{key}') in {season}. "
+                  f"Closest: {suggestions}")
         return {}
 
     row = row.iloc[0]

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 import pandas as pd
 import logging
@@ -19,20 +20,14 @@ from salary_nba_data_pull.process_utils import (
     calculate_percentages,
     _ensure_cpi_ready,
     add_usage_components,
+    consolidate_duplicate_columns,
+    ensure_player_ids,
 )
-from salary_nba_data_pull.scrape_utils import (
-    scrape_salary_cap_history,
-    load_injury_data,
-    _season_advanced_df,
-)
-from salary_nba_data_pull.process_utils import merge_injury_data
+
+    # Removed advanced metrics scraping imports to eliminate nulls
 from salary_nba_data_pull.data_utils import (
     clean_dataframe,
-    merge_salary_cap_data,
     validate_data,
-    load_salary_cap_csv,
-    load_salary_cap_parquet,
-    load_external_salary_data,
 )
 from salary_nba_data_pull.settings import DATA_PROCESSED_DIR
 
@@ -177,205 +172,284 @@ def _player_task(args):
         stats['Salary'] = salary
     return stats
 
+
+
+import pandas as pd
+import logging, textwrap
+
+CORE_COLS = ("FGA", "FTA", "MP", "PTS")
+
+def debug_checkpoint(df: pd.DataFrame,
+                     label: str,
+                     *,
+                     core_cols: tuple[str, ...] = CORE_COLS,
+                     head: int = 0) -> None:
+    """
+    Print a compact overview of the DataFrame at a pipeline milestone.
+
+    • Always shows #rows, #cols.
+    • Warns if any `core_cols` are missing.
+    • Optionally prints `df.head(head)` for a quick sanity scan.
+    """
+    msg = f"[chk:{label}] rows={len(df):,}  cols={len(df.columns):,}"
+    missing = [c for c in core_cols if c not in df.columns]
+    if missing:
+        msg += f"  ❌ MISSING: {missing}"
+    logging.debug(msg)
+    print(msg)                     # visible even without logging configured
+    if head > 0:
+        print(textwrap.indent(df.head(head).to_string(index=False), "    "))
+
 # ----------------------------------------------------------------------
 def update_data(existing_data,
                 start_year: int,
                 end_year: int,
                 *,
                 player_filter: str = "all",
-                min_avg_minutes: float | None = None,
+                min_avg_minutes: float | None = None,    # NEW: filter on avg minutes
+                min_shot_attempts: int | None = None,    # NEW: filter on shot attempts
+                nan_filter: bool = False,                 # NEW: enable threshold-aware NaN filtering
+                nan_filter_percentage: float = 0.01,      # NEW: threshold for low-missing columns
                 debug: bool = False,
-                small_debug: bool = False,          # --- NEW
+                small_debug: bool = False,
                 max_workers: int = 8,
                 output_base: str | Path = DATA_PROCESSED_DIR,
                 overwrite: bool = False) -> pd.DataFrame:
     """
-    Pull seasons in [start_year, end_year] and write under `output_base`.
-    When `small_debug` is True, suppress per‑player chatter and show only
-    concise per‑season summaries.
+    Pull seasons in [start_year, end_year], WITHOUT any salary or injury merges.
+    Ensures we only rely on nba_api rosters + career stats + W/L logs.
+    
+    FILTERS:
+    - min_avg_minutes: Filter out players averaging < this many minutes per game
+    - min_shot_attempts: Filter out players with fewer than this many total shot attempts (FGA+FTA)
+    - nan_filter: If True, apply threshold-aware NaN filtering instead of dropping all rows with any NaN
+    - nan_filter_percentage: Threshold for low-missing columns when nan_filter=True (default 1%)
+    
+    These filters help eliminate nulls from low-volume players who don't have enough
+    data for meaningful percentage calculations.
     """
     output_base = Path(output_base)
-    output_base.mkdir(parents=True, exist_ok=True)
-
-    # Decide low-level debug for helpers
     helper_debug = debug and not small_debug
 
-    injury = load_injury_data(debug=helper_debug)
-
-    # ⇩⇩  NEW  ⇩⇩  pull salary from parquet (or leave empty)
-    salary_dir = Path(output_base).parent / "salary_external"
-    salary_df = pd.concat(
-        [load_external_salary_data(f"{y}-{str(y+1)[-2:]}", root=salary_dir)
-         for y in range(start_year, end_year + 1)],
-        ignore_index=True
+    from salary_nba_data_pull.scrape_utils import _season_advanced_df
+    from salary_nba_data_pull.fetch_utils import (
+        fetch_season_players, fetch_league_standings, fetch_team_wl_by_season
+    )
+    from salary_nba_data_pull.process_utils import (
+        process_player_data, calculate_percentages, add_usage_components,
+        attach_wins_losses, merge_advanced_metrics,
     )
 
-    # if salary not available we'll still proceed
-    season_has_salary = set(salary_df["Season"].unique())
-
     out_frames: list[pd.DataFrame] = []
-    season_summaries: list[str] = []  # --- NEW: collect summaries
+    season_summaries: list[str] = []
 
     for y in tqdm(range(start_year, end_year + 1),
                   desc="Seasons", disable=small_debug):
         season = f"{y}-{str(y+1)[-2:]}"
         ckpt_dir = output_base / f"season={season}"
-        ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-        # --- 1. Team payroll (removed - no longer scraped)
-        team_payroll = pd.DataFrame(columns=["Team", "Team_Salary", "Season"])
+        if helper_debug:
+            print(f"[update_data] Starting season {season}")
 
-        # --- 2. Standings (wins/losses)
-        standings_df = fetch_league_standings(season, debug=helper_debug)
-        if standings_df is None:
-            standings_df = pd.DataFrame()
+        # 1️⃣ Fetch the complete season roster
+        roster = fetch_season_players(season, debug=helper_debug)
+        if helper_debug:
+            print(f"[update_data] fetched {len(roster)} players for {season}")
 
-        # --- 3. Roster
-        players_this_season = fetch_season_players(season, debug=helper_debug)
-        rows = salary_df.query("Season == @season") if season in season_has_salary \
-               else pd.DataFrame(columns=["Player", "Salary"])
+        # 2️⃣ Build args for each player (correct signature)
         args = [
-            (row.Player, season, row.Salary, players_this_season, helper_debug)
-            for _, row in rows.iterrows()
-        ] if not rows.empty else [
-            (name.title(), season, None, players_this_season, helper_debug)
-            for name in players_this_season.keys()
+            (name, season, roster, helper_debug)
+            for name in roster.keys()
+            if (player_filter == "all" or player_filter.lower() in name)
         ]
+        if helper_debug:
+            print(f"[update_data] processing {len(args)} players after filter")
 
-        # --- pre‑fetch season‑wide advanced table so workers reuse the cache
-        _ = _season_advanced_df(season)        # warm cache under the lock
+        # 3️⃣ Process each player in parallel (correct signature)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        results, failures = [], 0
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(args) or 1)) as pool:
+            futures = {pool.submit(
+                lambda nm, ss, rp, dbg: process_player_data(nm, ss, rp, debug=dbg),
+                *arg
+            ): arg[0] for arg in args}
 
-        # --- 4. Player processing in parallel
-        with ThreadPoolExecutor(max_workers=min(max_workers or DEFAULT_WORKERS, len(args))) as pool:
-            results, failures = [], 0
-            for fut in tqdm(as_completed(pool.submit(_player_task, a) for a in args),
-                            total=len(args), desc=f"{season} workers", disable=small_debug):
+            for fut in as_completed(futures):
+                pname = futures[fut]
                 try:
                     res = fut.result()
-                    if res:
+                    if res is None:
+                        if helper_debug:
+                            print(f"[update_data][WARN] no data for player '{pname}' in {season}")
+                    else:
                         results.append(res)
                 except Exception as exc:
                     failures += 1
-                    logging.exception("Worker failed for %s: %s", season, exc)
-            if failures and debug:
-                print(f"⚠️  {failures} worker threads raised exceptions")
+                    logging.exception("Player task failed for %s (%s): %s", pname, season, exc)
 
-        missing = rows.loc[~rows.Player.str.lower().isin(players_this_season.keys()),
-                           "Player"].unique()
-
-        (ckpt_dir / "missing_players.txt").write_text("\n".join(missing))
+        if failures and debug:
+            print(f"[update_data] ⚠️  {failures} player failures in {season}")
 
         df_season = pd.DataFrame(results)
-        print(f"[dbg] {season} processed players:", len(df_season))
         
-        # ---- PROBE: Check for specific duplicate key ----
-        key = ("2023-24", "Kj Martin")
-        if season == "2023-24":
-            probe_count = df_season.query("Season == @key[0] & Player == @key[1]").shape[0]
-            print(f"[probe] Kj Martin count in df_season: {probe_count}")
-            if probe_count > 1:
-                print("[probe] Kj Martin rows:")
-                print(df_season.query("Season == @key[0] & Player == @key[1]")[["Season", "Player", "Team", "MP"]])
+        # NEW: repair legacy partitions that missed PlayerID / TeamID
+        df_season = ensure_player_ids(df_season, season, debug=helper_debug)
         
-        # ---------- season sanity check ----------
-        if len(df_season) < 150:
-            logging.warning("%s produced only %d rows; retrying after 90 s", season, len(df_season))
-            time.sleep(90)
-            return update_data(existing_data, y, y,  # single‑season retry
-                               player_filter=player_filter,
-                               min_avg_minutes=min_avg_minutes,
-                               debug=debug,
-                               small_debug=small_debug,
-                               max_workers=max_workers,
-                               output_base=output_base,
-                               overwrite=True)
-        if df_season.empty:
-            # Build tiny summary anyway
-            season_summaries.append(f"{season}: 0 players processed.")
-            continue
+        if helper_debug:
+            print(f"[update_data] {season} → DataFrame with {len(df_season)} rows")
 
-        # --- 5. Merge W/L (validate to prevent row blow‑ups)
-        if not standings_df.empty:
-            stand_df = standings_df.copy()
-            if 'W' in stand_df.columns:
-                stand_df.rename(columns={'W': 'Wins', 'L': 'Losses'}, inplace=True)
-            if 'WINS' in stand_df.columns:
-                stand_df.rename(columns={'WINS': 'Wins', 'LOSSES': 'Losses'}, inplace=True)
-            if 'TEAM_ID' in stand_df.columns:
-                stand_df.rename(columns={'TEAM_ID': 'TeamID'}, inplace=True)
-            
-            print(f"[dbg] {season} before standings merge:", len(df_season))
-            df_season = pd.merge(
-                df_season,
-                stand_df[['TeamID', 'Wins', 'Losses']].drop_duplicates('TeamID'),
-                on='TeamID', how='left', validate='m:1'
+        # ------------------------------------------------------------------
+        # A) **EARLY minutes-per-game filter**
+        # ------------------------------------------------------------------
+        if (min_avg_minutes is not None) and ("MP" in df_season.columns):
+            before = len(df_season)
+            df_season = df_season.query("MP >= @min_avg_minutes")
+            if helper_debug:
+                print(f"[filter-early] {season}: MP ≥ {min_avg_minutes}  "
+                      f"→ {before}→{len(df_season)} rows")
+        # ------------------------------------------------------------------
+
+        # 4️⃣ Attach W/L using unified lookup
+        df_season = df_season.pipe(
+            attach_wins_losses, season=season, debug=helper_debug
+        )
+
+        # 5️⃣ Derived metrics & clean
+        if helper_debug:
+            print(f"[update_data] {season} before derived metrics: {len(df_season.columns)} columns")
+            print(f"[update_data] {season} columns: {list(df_season.columns)}")
+        
+        merged = (
+            df_season
+            .pipe(calculate_percentages, debug=helper_debug)
+            .pipe(add_usage_components, debug=helper_debug)
+            .pipe(merge_advanced_metrics, season=season, debug=helper_debug)  # Re-enabled advanced metrics
+            .pipe(consolidate_duplicate_columns, debug=helper_debug)
+        )
+        
+        # -------------------------------------------------------------
+        # 🔒 Debug sentinel – verify PlayerID survival after consolidation
+        # -------------------------------------------------------------
+        debug_checkpoint(merged, f"{season}:post-consolidate", head=0)
+        assert "PlayerID" in merged.columns, f"[update_data] {season}: PlayerID lost after consolidate_duplicate_columns"
+        
+        debug_checkpoint(merged, f"{season}:post-derived", head=3)
+        
+        
+        # --- season-aware guard & diagnostics (no filling) ---
+        if helper_debug:
+            from salary_nba_data_pull.process_utils import (
+                guard_advanced_null_regress, diagnose_advanced_nulls
             )
-            print(f"[dbg] {season} after standings merge:", len(df_season))
+            guard_advanced_null_regress(merged, season, base_dir=output_base, debug=True)
+            _ = diagnose_advanced_nulls(merged, season, debug=True)
+        
+        if helper_debug:
+            print(f"[update_data] {season} after derived metrics: {len(merged.columns)} columns")
+            advanced_cols = ['PER', 'BPM', 'VORP', 'WS', 'DWS', 'OWS', 'WS/48', 'AST%', 'BLK%', 'TOV%', 'TRB%', 'DRB%']
+            found_advanced = [col for col in advanced_cols if col in merged.columns]
+            print(f"[update_data] {season} advanced columns found: {found_advanced}")
 
-        # --- 6. Team payroll merge (removed - no longer merged)
-        merged_tmp2 = df_season if min_avg_minutes is None else df_season.query("MP >= @min_avg_minutes")
-        print(f"[dbg] {season} after MP filter:", len(merged_tmp2))
-        
-        merged_tmp3 = merged_tmp2.pipe(merge_injury_data, injury_data=injury)
-        print(f"[dbg] {season} after injury merge:", len(merged_tmp3))
-        
-        merged = (merged_tmp3
-                    .pipe(calculate_percentages, debug=helper_debug)
-                    # ── deep breath ── add component usage & load
-                    .pipe(add_usage_components, debug=helper_debug)
-                    .pipe(clean_dataframe))
-        
-        # ---- FINAL: enforce key uniqueness ----
+        # ── NEW: apply user‐specified filters ─────────────────────────
+        # 5️⃣ Filter low-minute players  (robust to missing column)
+        if min_avg_minutes is not None:
+            if "MP" in merged.columns:                    # keep the guarded fallback
+                before = len(merged)
+                merged = merged.query("MP >= @min_avg_minutes")
+                if helper_debug:
+                    print(f"[filter-late] {season}: MP ≥ {min_avg_minutes}  "
+                          f"→ {before}→{len(merged)} rows")
+            else:
+                logging.warning("[filter-late] %s: 'MP' col missing – skipped", season)
+        #  ^-- Only this guarded block remains.  **The stray unconditional query is gone.**
+        # ── NEW: shot-attempt filter with robust column handling ────────────
+        if min_shot_attempts is not None:
+            # We accept either 'FGA' directly *or* twins created by merges.
+            for _candidate in ("FGA", "FGA_x", "FGA_y"):
+                if _candidate in merged.columns:
+                    fga_col = _candidate
+                    break
+            else:   # no break → not found
+                raise KeyError(
+                    "[filter-shots] 'FGA' column missing after merges – "
+                    "check consolidate_duplicate_columns or earlier transforms."
+                )
+
+            fta_col = "FTA" if "FTA" in merged.columns else \
+                      "FTA_x" if "FTA_x" in merged.columns else \
+                      "FTA_y" if "FTA_y" in merged.columns else None
+
+            if fta_col is None:
+                raise KeyError("[filter-shots] 'FTA' column missing after merges.")
+
+            before = len(merged)
+            merged = (
+                merged
+                .assign(_shots=merged[fga_col].fillna(0) + merged[fta_col].fillna(0))
+                .query("_shots >= @min_shot_attempts")
+                .drop(columns=["_shots"])
+            )
+            if helper_debug:
+                print(f"[filter-shots] {season}: ≥{min_shot_attempts} attempts "
+                      f"→ {before}→{len(merged)} rows")
+
+        # ── NEW: apply NaN filtering ───────────────────────────────────
+        if nan_filter:
+            # Apply threshold-aware NaN filtering
+            before = len(merged)
+            null_pct = merged.isna().mean()
+            cols_to_strict_drop = null_pct[(null_pct > 0) & (null_pct <= nan_filter_percentage)].index.tolist()
+            
+            if cols_to_strict_drop:
+                merged = merged.dropna(subset=cols_to_strict_drop)
+                dropped = before - len(merged)
+                if helper_debug:
+                    print(f"[nan_filter] {season}: dropped {dropped} rows based on "
+                          f"{len(cols_to_strict_drop)} low-missing columns (≤ {nan_filter_percentage*100:.1f}%)")
+                    print(f"[nan_filter] {season}: low-missing columns: {cols_to_strict_drop}")
+            else:
+                if helper_debug:
+                    print(f"[nan_filter] {season}: no columns below threshold; no rows dropped")
+        else:
+            # Legacy behavior: drop any row with any NaN
+            before = len(merged)
+            merged = merged.dropna()
+            if helper_debug:
+                print(f"[nan_filter] {season}: legacy dropna - dropped {before - len(merged)} rows with any NaN")
+        # ── end filters ──────────────────────────────────────────────────
+
+        # Key‐column sanity
         dups = merged.duplicated(subset=["Season","Player"], keep=False)
         if dups.any():
-            print(f"[dbg] {season} DUPLICATE KEYS detected ({dups.sum()} rows). Dumping...")
-            print(merged.loc[dups, ["Season","Player","Team","MP"]]
-                        .sort_values(["Player","Team"]))
-            # Hard fail so we never persist dirty data:
-            raise AssertionError(f"Duplicate (Season,Player) keys in season {season}")
+            sample = merged.loc[dups, ["Season","Player","Team","MP"]]
+            print(f"[update_data][ERROR] Duplicate keys in {season}:\n{sample}")
+            raise AssertionError(f"Duplicate (Season,Player) in {season}")
 
-        # STEP A1: deterministic sort & string normalization
-        key_cols = ["Season","Player"]
-        merged = merged.sort_values(key_cols).reset_index(drop=True)
+        # Trim whitespace-only strings → NA
         obj_cols = merged.select_dtypes(include=["object"]).columns
         for c in obj_cols:
             merged[c] = merged[c].replace(r"^\s*$", pd.NA, regex=True)
 
-        print(f"[dbg] {season} final merged:", len(merged))
-
-        # Skip identical season unless overwrite (moved here to use merged DataFrame)
-        if (not overwrite
-            and (ckpt_dir / "part.parquet").exists()
-            and _season_partition_identical(season, output_base, merged)):
-            if debug and not small_debug:
-                print(f"✓  {season} unchanged – skipping")
-            out_frames.append(merged)
-            continue
-        elif debug and not small_debug and (ckpt_dir / "part.parquet").exists():
-            print(f"↻  {season} differs – re-scraping")
-
+        # Persist per‐season partition
         parquet_path = ckpt_dir / "part.parquet"
+        if not overwrite and parquet_path.exists():
+            from salary_nba_data_pull.main import _season_partition_identical
+            if _season_partition_identical(season, output_base, merged):
+                if helper_debug:
+                    print(f"[update_data] {season} unchanged, skipping write")
+                out_frames.append(merged)
+                continue
         merged.to_parquet(parquet_path, index=False)
-        (ckpt_dir / "part.md5").write_text(_file_md5(parquet_path))
+        if helper_debug:
+            print(f"[update_data] wrote {parquet_path}")
 
         out_frames.append(merged)
-        logging.info("wrote %s", ckpt_dir)
+        season_summaries.append(f"{season}: {len(merged)} rows")
 
-        # --- NEW: concise summary
-        if small_debug:
-            n_players = len(merged)
-            n_missing = len(missing)
-            n_cols = merged.shape[1]
-            season_summaries.append(
-                f"{season}: {n_players} rows, {n_missing} missing roster matches, {n_cols} cols."
-            )
-
-    # Print all summaries once
-    if small_debug and season_summaries:
-        print("\n--- Season Summaries ---")
-        for line in season_summaries:
-            print(line)
-        print("------------------------\n")
+    if small_debug:
+        print("\n--- Seasons Summaries ---")
+        print("\n".join(season_summaries))
+        print("-------------------------\n")
 
     return pd.concat(out_frames, ignore_index=True) if out_frames else pd.DataFrame()
 
@@ -394,12 +468,21 @@ def persist_final_dataset(new_data: pd.DataFrame, seasons_loaded: list[str],
                           *, output_base: Path, debug: bool = False,
                           numeric_atol: float = 1e-6, numeric_rtol: float = 1e-9,
                           max_print: int = 15, mean_tol_pct: float = 0.001) -> None:
+    from salary_nba_data_pull.data_utils import prune_end_columns
+
     final_parquet = output_base / "nba_player_data_final_inflated.parquet"
     join_keys = ["Season", "Player"]
+
+    # -- NEW: prune end-only columns BEFORE diffing/writing
+    new_data = prune_end_columns(new_data, debug=debug)
 
     old_master = (pd.read_parquet(final_parquet)
                   if final_parquet.exists() else
                   pd.DataFrame(columns=new_data.columns))
+
+    # -- NEW: also prune any legacy columns in the old master for a fair diff
+    if not old_master.empty:
+        old_master = prune_end_columns(old_master, debug=debug)
 
     for df in (old_master, new_data):
         for k in join_keys:
@@ -454,19 +537,31 @@ def persist_final_dataset(new_data: pd.DataFrame, seasons_loaded: list[str],
 def main(start_year: int,
          end_year: int,
          player_filter: str = "all",
-         min_avg_minutes: float = 15,
+         min_avg_minutes: float = 10,    # NEW default: 10 minutes
+         min_shot_attempts: int = 50,    # NEW: filter on shot attempts
+         nan_filter: bool = False,       # NEW: enable threshold-aware NaN filtering
+         nan_filter_percentage: float = 0.01,  # NEW: threshold for low-missing columns
          debug: bool = False,
          small_debug: bool = False,      # --- NEW
          workers: int = 8,
          overwrite: bool = False,
          output_base: str | Path = DATA_PROCESSED_DIR) -> None:
     """
-    Entry point. `small_debug=True` prints only high‑signal info.
-    If both `debug` and `small_debug` are True, `debug` wins (full noise).
+    Entry point for NBA data processing pipeline.
+    
+    NaN Filtering Options:
+    - nan_filter=False (default): Legacy behavior - drop any row with any NaN
+    - nan_filter=True: Threshold-aware filtering - only drop rows for columns with 
+      NaN rate ≤ nan_filter_percentage
+    
+    Debug Options:
+    - small_debug=True: Print only high-signal info
+    - debug=True: Full verbose output
+    - If both debug and small_debug are True, debug wins (full noise)
     """
     t0 = time.time()
     output_base = Path(output_base)
-    output_base.mkdir(parents=True, exist_ok=True)
+
 
     log_dir = output_base.parent / "stat_pull_output"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -480,6 +575,9 @@ def main(start_year: int,
     updated = update_data(None, start_year, end_year,
                           player_filter=player_filter,
                           min_avg_minutes=min_avg_minutes,
+                          min_shot_attempts=min_shot_attempts,  # NEW: pass shot attempts filter
+                          nan_filter=nan_filter,              # NEW: pass NaN filter flag
+                          nan_filter_percentage=nan_filter_percentage,  # NEW: pass NaN filter threshold
                           debug=debug,
                           small_debug=small_debug,          # --- NEW
                           max_workers=workers,
@@ -490,37 +588,19 @@ def main(start_year: int,
         print(f"✔ Completed pull: {len(updated):,} rows added")
 
     if not updated.empty:
-        # ---------------- Salary Cap -----------------
-        # Prefer local Parquet; fallback to CSV, then scrape only if file missing and user allows
-        cap_file = Path(output_base) / "salary_cap_history_inflated"
-        use_scrape = False
-
-        try:
-            salary_cap = load_salary_cap_parquet(cap_file, debug=debug and not small_debug)
-        except FileNotFoundError:
-            # LAST resort – scrape (can be disabled permanently by setting use_scrape=False)
-            if debug and not small_debug:
-                print("[salary-cap] local file missing, attempting scrape…")
-            salary_cap = scrape_salary_cap_history(debug=debug and not small_debug)
-            if salary_cap is not None:
-                # Save as both Parquet and CSV for compatibility
-                salary_cap.to_parquet(f"{cap_file}.parquet", index=False)
-                salary_cap.to_csv(f"{cap_file}.csv", index=False)
-
-        if salary_cap is not None:
-            updated = merge_salary_cap_data(updated, salary_cap, debug=debug and not small_debug)
-        else:
-            if debug:
-                print("[salary-cap] No data merged — check local file path.")
-
-        # --------------- Validate --------------------
+        # — Skip salary‐cap entirely —
+        # Validate only core columns (Season,Player,Team)
+        from salary_nba_data_pull.data_utils import validate_data
         updated = validate_data(updated, name="player_dataset", save_reports=True)
 
+        # Persist master
         seasons_this_run = sorted(updated["Season"].unique().tolist())
-        persist_final_dataset(updated,
-                              seasons_loaded=seasons_this_run,
-                              output_base=output_base,
-                              debug=debug)
+        persist_final_dataset(
+            updated,
+            seasons_loaded=seasons_this_run,
+            output_base=output_base,
+            debug=debug
+        )
 
     if not small_debug:
         print(f"Process finished in {time.time() - t0:.1f} s — log: {log_file}")
@@ -536,7 +616,14 @@ if __name__ == "__main__":
     p.add_argument("--start_year", type=int, default=cur-1)
     p.add_argument("--end_year",   type=int, default=cur)
     p.add_argument("--player_filter", default="all")
-    p.add_argument("--min_avg_minutes", type=float, default=15)
+    p.add_argument("--min_avg_minutes", type=float, default=10,
+                   help="Filter out players averaging < this many minutes per game")
+    p.add_argument("--min_shot_attempts", type=int, default=50,
+                   help="Filter out players with fewer than this many total shot attempts (FGA+FTA)")
+    p.add_argument("--nan_filter", action="store_true",
+                   help="Enable threshold-aware NaN filtering (instead of dropping all rows with any NaN)")
+    p.add_argument("--nan_filter_percentage", type=float, default=0.01,
+                   help="Threshold for low-missing columns when nan_filter=True (default 1%%)")
     p.add_argument("--debug", action="store_true")
     p.add_argument("--small_debug", action="store_true")   # --- NEW
     p.add_argument("--workers", type=int, default=8)
@@ -546,3 +633,4 @@ if __name__ == "__main__":
                    help="Destination root for parquet + csv outputs")
     args = p.parse_args()
     main(**vars(args))
+

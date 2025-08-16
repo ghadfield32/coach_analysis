@@ -3,6 +3,7 @@ import time
 import random
 import logging
 import os
+import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache, wraps
 from http import HTTPStatus
@@ -17,6 +18,20 @@ from tenacity import (
     retry, retry_if_exception, wait_random_exponential,
     stop_after_attempt, before_log
 )
+
+# --- NEW: Team game logs endpoint detection ---
+try:
+    # newer nba_api
+    from nba_api.stats.endpoints import teamgamelogs as _teamgamelogs_mod
+    _HAVE_TEAMGAMELOGS_PLURAL = True
+except Exception:
+    _HAVE_TEAMGAMELOGS_PLURAL = False
+try:
+    # older nba_api
+    from nba_api.stats.endpoints import teamgamelog as _teamgamelog_mod
+    _HAVE_TEAMGAMELOG_SINGULAR = True
+except Exception:
+    _HAVE_TEAMGAMELOG_SINGULAR = False
 
 REQUESTS_PER_MIN = 8   # ↓ a bit safer for long pulls (NBA suggests ≤10)
 _SEM = threading.BoundedSemaphore(REQUESTS_PER_MIN)
@@ -149,6 +164,113 @@ def fetch_league_standings(season, debug=False):
 def clear_cache():
     """Clear the joblib memory cache."""
     memory.clear()
+
+@memory.cache
+def fetch_team_wl_by_season(season: str,
+                            season_type: str = "Regular Season",
+                            debug: bool = False) -> pd.DataFrame:
+    """
+    Return per‑team W/L for a season from team game logs.
+    Robust to nba_api versions:
+      - TeamGameLogs(...).get_data_frames()[0]  (new)
+      - TeamGameLog(...).get_data_frames()[0]   (old)
+    We do not fill; if logs are empty, we return an empty DataFrame.
+    """
+    import pandas as pd
+
+    if _HAVE_TEAMGAMELOGS_PLURAL:
+        # new endpoint signature (nullable arg names in newer APIs)
+        df = fetch_with_retry(
+            _teamgamelogs_mod.TeamGameLogs,
+            season_nullable=season,
+            season_type_nullable=season_type,
+            debug=debug,
+        )
+    elif _HAVE_TEAMGAMELOG_SINGULAR:
+        # older endpoint
+        df = fetch_with_retry(
+            _teamgamelog_mod.TeamGameLog,
+            season=season,
+            season_type_all_star=season_type,
+            debug=debug,
+        )
+    else:
+        if debug:
+            print("[fetch_team_wl_by_season] no team game log endpoint available")
+        return pd.DataFrame(columns=["TeamID", "Wins", "Losses"])
+
+    if df is None or df.empty:
+        if debug:
+            print(f"[fetch_team_wl_by_season] empty logs for {season}")
+        return pd.DataFrame(columns=["TeamID", "Wins", "Losses"])
+
+    # Normalize column names used across versions
+    # Expect at least TEAM_ID and WL fields.
+    cols = {c.upper(): c for c in df.columns}
+    team_id_col = cols.get("TEAM_ID", None)
+    wl_col = cols.get("WL", None)
+
+    if team_id_col is None or wl_col is None:
+        if debug:
+            print(f"[fetch_team_wl_by_season] required columns missing in logs "
+                  f"{list(df.columns)}")
+        return pd.DataFrame(columns=["TeamID", "Wins", "Losses"])
+
+    # Count W/L by team
+    grp = (df.assign(_W=(df[wl_col] == "W").astype(int),
+                     _L=(df[wl_col] == "L").astype(int))
+             .groupby(df[team_id_col], dropna=False)[["_W", "_L"]]
+             .sum()
+             .rename(columns={"_W": "Wins", "_L": "Losses"})
+             .reset_index()
+             .rename(columns={team_id_col: "TeamID"}))
+
+    if debug:
+        tot_w = int(grp["Wins"].sum())
+        tot_l = int(grp["Losses"].sum())
+        print(f"[fetch_team_wl_by_season] {season} totals: W={tot_w}, L={tot_l}")
+
+    return grp
+
+@memory.cache
+def fetch_team_wl_lookup(season: str,
+                         season_type: str = "Regular Season",
+                         debug: bool = False) -> pd.DataFrame:
+    """
+    Unified W/L by TeamID for a season.
+    Primary: team game logs aggregation (robust across nba_api versions).
+    Fallback: LeagueStandings endpoint.
+    Returns columns: TeamID, Wins, Losses (one row per TeamID).
+    """
+    import pandas as pd
+
+    # Primary
+    logs = fetch_team_wl_by_season(season, season_type=season_type, debug=debug)
+    logs = logs.rename(columns={"Wins": "Wins_logs", "Losses": "Losses_logs"})
+
+    # Fallback (LeagueStandings)
+    st = fetch_league_standings(season, debug=debug)
+    # nba_api LeagueStandings uses uppercase WINS/LOSSES
+    want_cols = {}
+    for c in st.columns:
+        uc = str(c).upper()
+        if uc == "TEAM_ID": want_cols[c] = "TeamID"
+        if uc == "WINS":    want_cols[c] = "Wins_stand"
+        if uc == "LOSSES":  want_cols[c] = "Losses_stand"
+    st = st.rename(columns=want_cols)
+    st = st[[c for c in ["TeamID", "Wins_stand", "Losses_stand"] if c in st.columns]].drop_duplicates("TeamID")
+
+    # Outer join both sources on TeamID, then coalesce
+    out = pd.merge(logs, st, on="TeamID", how="outer", validate="1:1")
+    out["Wins"]   = out["Wins_logs"].combine_first(out["Wins_stand"])
+    out["Losses"] = out["Losses_logs"].combine_first(out["Losses_stand"])
+    out = out[["TeamID", "Wins", "Losses"]].drop_duplicates("TeamID").reset_index(drop=True)
+
+    if debug:
+        miss = int(out["Wins"].isna().sum())
+        if miss:
+            print(f"[fetch_team_wl_lookup] WARN: {miss} TeamID rows still missing Wins/Losses")
+    return out
 
 if __name__ == "__main__":
     # Example usage

@@ -10,9 +10,26 @@ from salary_nba_data_pull.quality import (
 )
 from salary_nba_data_pull.settings import DATA_PROCESSED_DIR
 
+# Columns that must *always* be present – even if currently all NaN
+CRITICAL_ID_COLS: set[str] = {"PlayerID", "TeamID"}
+
 PRESERVE_EVEN_IF_ALL_NA = {
     "3P%", "Injured", "Injury_Periods", "Total_Days_Injured", "Injury_Risk"
 }
+
+
+# --- NEW: End-of-pipeline column pruning ---
+DROP_AT_END = {
+    "Salary",
+    "2nd Apron", "Second Apron",   # drop only second apron as requested
+}
+
+def prune_end_columns(df: pd.DataFrame, *, debug: bool = True) -> pd.DataFrame:
+    """Drop end-of-pipeline columns without masking upstream issues."""
+    existing = [c for c in df.columns if c in DROP_AT_END]
+    if debug and existing:
+        print(f"[prune_end_columns] dropping columns at persist: {existing}")
+    return df.drop(columns=existing, errors="ignore")
 
 # --- NEW helper ------------------------------------------------------
 def load_salary_cap_parquet(path: str | Path, *, debug: bool = False) -> pd.DataFrame:
@@ -46,34 +63,42 @@ def load_salary_cap_csv(path: str | Path, *, debug: bool = False) -> pd.DataFram
     return df
 
 def clean_dataframe(df):
-    # Remove unnamed columns
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    """
+    Generic dataframe hygiene with *guarantees* that critical identifier
+    columns survive even if all values are currently missing.
+
+    Critical columns are defined in CRITICAL_ID_COLS at module scope.
+    """
+    # Remove unnamed columns coming from CSV join artefacts
+    df = df.loc[:, ~df.columns.str.contains(r'^Unnamed')]
 
     # Remove duplicate columns
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Remove columns with all NaN values **except** ones we want to keep
-    all_na = df.columns[df.isna().all()]
-    to_drop = [c for c in all_na if c not in PRESERVE_EVEN_IF_ALL_NA]
+    # --------------------------------------------------------------
+    # 🔒  Never drop the ID columns – keep them for schema stability
+    # --------------------------------------------------------------
+    keep_always = PRESERVE_EVEN_IF_ALL_NA.union(CRITICAL_ID_COLS)
+
+    all_na_cols = df.columns[df.isna().all()]
+    to_drop = [c for c in all_na_cols if c not in keep_always]
     df = df.drop(columns=to_drop)
 
-    # Remove rows with all NaN values
+    # Remove rows that are entirely NaN
     df = df.dropna(axis=0, how='all')
 
-    # Ensure only one 'Season' column exists
-    season_columns = [col for col in df.columns if 'Season' in col]
-    if len(season_columns) > 1:
-        df = df.rename(columns={season_columns[0]: 'Season'})
-        for col in season_columns[1:]:
-            df = df.drop(columns=[col])
+    # Deduplicate 'Season' column if it slipped in twice
+    season_cols = [c for c in df.columns if 'Season' in c]
+    if len(season_cols) > 1:
+        df = df.rename(columns={season_cols[0]: 'Season'})
+        df = df.drop(columns=season_cols[1:])
 
-    # Remove '3PAr' and 'FTr' columns
-    columns_to_remove = ['3PAr', 'FTr']
-    df = df.drop(columns=columns_to_remove, errors='ignore')
+    # Optional removals
+    df = df.drop(columns=['3PAr', 'FTr'], errors='ignore')
 
-    # Round numeric columns to 2 decimal places
-    numeric_columns = df.select_dtypes(include=[np.number]).columns
-    df[numeric_columns] = df[numeric_columns].round(2)
+    # Round floats for storage
+    num = df.select_dtypes(include=[np.number]).columns
+    df[num] = df[num].round(2)
 
     return df
 
@@ -139,28 +164,61 @@ def load_external_salary_data(season: str,
                               root: Path | str = DATA_PROCESSED_DIR / "salary_external",
                               *, debug: bool = False) -> pd.DataFrame:
     """
-    Read player‑salary parquet pre‑dropped by an upstream job.
-    Expected path:  {root}/season={YYYY-YY}/part.parquet
+    Read player‑salary data from various formats.
+    Expected paths (in order of preference):
+    1. {root}/season={YYYY-YY}/part.parquet
+    2. {root}/comprehensive_salary_data.csv (with Season column)
+    3. {root}/sample_salary_data.csv (with Season column)
     """
-    path = Path(root) / f"season={season}/part.parquet"
-    if not path.exists():
+    # Try parquet file first
+    parquet_path = Path(root) / f"season={season}/part.parquet"
+    if parquet_path.exists():
         if debug:
-            print(f"[salary‑ext] no salary file at {path}")
-        return pd.DataFrame(columns=["Player", "Salary", "Season"])
+            print(f"[salary‑ext] loading parquet {parquet_path}")
+        return pd.read_parquet(parquet_path)
+    
+    # Try comprehensive CSV file
+    csv_path = Path(root) / "comprehensive_salary_data.csv"
+    if csv_path.exists():
+        if debug:
+            print(f"[salary‑ext] loading comprehensive CSV {csv_path}")
+        df = pd.read_csv(csv_path)
+        if 'Season' in df.columns:
+            season_data = df[df['Season'] == season]
+            if not season_data.empty:
+                return season_data
+            else:
+                if debug:
+                    print(f"[salary‑ext] no data for season {season} in comprehensive CSV")
+    
+    # Try sample CSV file
+    sample_csv_path = Path(root) / "sample_salary_data.csv"
+    if sample_csv_path.exists():
+        if debug:
+            print(f"[salary‑ext] loading sample CSV {sample_csv_path}")
+        df = pd.read_csv(sample_csv_path)
+        if 'Season' in df.columns:
+            season_data = df[df['Season'] == season]
+            if not season_data.empty:
+                return season_data
+            else:
+                if debug:
+                    print(f"[salary‑ext] no data for season {season} in sample CSV")
+    
     if debug:
-        print(f"[salary‑ext] loading {path}")
-    return pd.read_parquet(path)
+        print(f"[salary‑ext] no salary file found for season {season}")
+    return pd.DataFrame(columns=["Player", "Salary", "Season"])
 
 def validate_data(df: pd.DataFrame,
                   *,
                   name: str = "player_dataset",
                   save_reports: bool = True) -> pd.DataFrame:
     """
-    Same validation, but salary columns are now OPTIONAL.
+    Basic schema and quality checks. `PlayerID` is now mandatory.
     """
     schema = ExpectedSchema(
         expected_cols=df.columns,
-        required_cols=["Season", "Player", "Team"],   # ‼ Salary removed
+        required_cols=["Season", "Player", "Team", "PlayerID"],   #  ← added
         dtypes={
             "Season": "object",
             "Player": "object",

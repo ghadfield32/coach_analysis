@@ -7,10 +7,12 @@ Goals
 • Avoid NameError on __file__.
 • Keep hot‑reload for iterative dev.
 • Forward arbitrary args to main() so we can test all scenarios.
+• Support NaN filtering with configurable thresholds.
 
 Use:
 >>> import salary_nba_data_pull.notebook_helper as nb
 >>> nb.quick_pull(2024, workers=12, debug=True)
+>>> nb.quick_pull(2024, nan_filter=True, nan_filter_percentage=0.02)
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import sys, importlib, inspect, os
 from pathlib import Path
 import requests_cache
 from typing import Iterable
+import pandas as pd
 
 def _find_repo_root(start: Path | None = None) -> Path:
     """Find the repository root by looking for pyproject.toml or .git."""
@@ -58,14 +61,65 @@ def _reload():
     importlib.reload(nba_main)
 
 def quick_pull(season: int, **kwargs):
+    """
+    Pull data for a single season with optional NaN filtering.
+    
+    Args:
+        season: Year to pull (e.g., 2024 for 2024-25 season)
+        **kwargs: Additional arguments passed to main()
+        
+    NaN Filtering:
+        nan_filter: If True, use threshold-aware NaN filtering (default: False)
+        nan_filter_percentage: Threshold for low-missing columns (default: 0.01 = 1%)
+        
+    Examples:
+        >>> quick_pull(2024, debug=True)  # Legacy behavior
+        >>> quick_pull(2024, nan_filter=True, nan_filter_percentage=0.02)  # 2% threshold
+    """
     _reload()
-    print(f"[quick_pull] season={season}, kwargs={kwargs}")
-    nba_main.main(start_year=season, end_year=season, **kwargs)
+    # Explicitly support nan_filter and its threshold:
+    nan_filter = kwargs.pop("nan_filter", False)
+    nan_filter_percentage = kwargs.pop("nan_filter_percentage", 0.01)
+    print(f"[quick_pull] season={season}  nan_filter={nan_filter} "
+          f"nan_filter_percentage={nan_filter_percentage}  other_kwargs={kwargs}")
+    nba_main.main(
+        start_year=season,
+        end_year=season,
+        nan_filter=nan_filter,
+        nan_filter_percentage=nan_filter_percentage,
+        **kwargs
+    )
 
 def historical_pull(start_year: int, end_year: int, **kwargs):
+    """
+    Pull data for multiple seasons with optional NaN filtering.
+    
+    Args:
+        start_year: First year to pull (inclusive)
+        end_year: Last year to pull (inclusive)
+        **kwargs: Additional arguments passed to main()
+        
+    NaN Filtering:
+        nan_filter: If True, use threshold-aware NaN filtering (default: False)
+        nan_filter_percentage: Threshold for low-missing columns (default: 0.01 = 1%)
+        
+    Examples:
+        >>> historical_pull(2022, 2024, debug=True)  # Legacy behavior
+        >>> historical_pull(2022, 2024, nan_filter=True, nan_filter_percentage=0.02)  # 2% threshold
+    """
     _reload()
-    print(f"[historical_pull] {start_year}-{end_year}, kwargs={kwargs}")
-    nba_main.main(start_year=start_year, end_year=end_year, **kwargs)
+    # Explicitly support nan_filter and its threshold:
+    nan_filter = kwargs.pop("nan_filter", False)
+    nan_filter_percentage = kwargs.pop("nan_filter_percentage", 0.01)
+    print(f"[historical_pull] {start_year}-{end_year}  nan_filter={nan_filter} "
+          f"nan_filter_percentage={nan_filter_percentage}  other_kwargs={kwargs}")
+    nba_main.main(
+        start_year=start_year,
+        end_year=end_year,
+        nan_filter=nan_filter,
+        nan_filter_percentage=nan_filter_percentage,
+        **kwargs
+    )
 
 def check_existing_data(base: Path | str | None = None) -> list[str]:
     base = Path(base) if base else DATA_PROCESSED_DIR
@@ -104,16 +158,70 @@ def query_data(sql: str, db: str | None = None):
         return con.execute(sql).fetchdf()
 
 
+# ── NEW VALIDATORS ──────────────────────────────────────────────────────────
+
+def validate_season_coverage(df: pd.DataFrame,
+                             expected_seasons: list[str]) -> None:
+    """
+    Check that df['Season'] covers exactly the expected seasons.
+    Prints missing and extra seasons.
+    """
+    if "Season" not in df.columns:
+        print("[validate_season_coverage] ERROR: no 'Season' column")
+        return
+
+    actual = sorted(df["Season"].dropna().unique().tolist())
+    missing = [s for s in expected_seasons if s not in actual]
+    extra   = [s for s in actual if s not in expected_seasons]
+
+    print(f"[validate_season_coverage] expected: {expected_seasons}")
+    print(f"[validate_season_coverage] actual:   {actual}")
+    if missing:
+        print(f"[validate_season_coverage] MISSING seasons: {missing}")
+    if extra:
+        print(f"[validate_season_coverage] EXTRA seasons:   {extra}")
+    if not missing and not extra:
+        print("[validate_season_coverage] ✅ coverage OK")
+
+def report_nulls(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Summarise null counts & percentages for each column in df.
+    Returns a DataFrame with columns: column, null_count, total_rows, null_pct.
+    """
+    total = len(df)
+    stats = []
+    for col in df.columns:
+        nulls = int(df[col].isna().sum())
+        pct   = 100 * nulls / total if total else 0
+        stats.append({
+            "column": col,
+            "null_count": nulls,
+            "total_rows": total,
+            "null_pct": round(pct, 2)
+        })
+    report = pd.DataFrame(stats).sort_values("null_pct", ascending=False)
+    print("[report_nulls]")
+    print(report.to_string(index=False))
+    return report
+
+
+
 if __name__ == "__main__":
     print_args()
     # quick_pull(2023, workers=4, debug=True)
 
-
-
-    historical_pull(2012, 2024,        # multi‑season, 2012, 2024,
+    historical_pull(2023, 2024,        # multi‑season, 2012, 2024,
                     workers=6,
                     min_avg_minutes=10,
+                    min_shot_attempts=50,
                     overwrite=True,
                     debug=True)
     check_existing_data()              # see which seasons are cached
     df = load_parquet_data("2023-24")  # inspect a single season
+
+    # Suppose you want exactly that one season:
+    validate_season_coverage(df, ["2023-24"])
+    # Check nulls:
+    null_report = report_nulls(df)
+    # Examine the top 5 columns by null_pct
+    null_report.head()
