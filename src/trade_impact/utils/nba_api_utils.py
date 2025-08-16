@@ -12,6 +12,26 @@ from nba_api.stats.endpoints import (
     leaguegamefinder as _leaguegamefinder,
 )
 
+# ---- optional global HTTP response cache (safe no-op if lib missing) ----
+try:
+    from requests_cache import install_cache
+    from datetime import timedelta
+    _HTTP_CACHE_PATH = os.path.join(_CACHE_DIR, "http_cache_sqlite")
+    install_cache(cache_name=_HTTP_CACHE_PATH, backend="sqlite", expire_after=timedelta(hours=12))
+except Exception:
+    pass
+
+# ---- optional Streamlit cache decorators (work outside Streamlit too) ----
+try:
+    import streamlit as st
+    def _st_cache_data(**kw):
+        return st.cache_data(**kw)
+except Exception:
+    def _st_cache_data(**kw):
+        # no-op decorator outside Streamlit
+        def deco(fn): return fn
+        return deco
+
 # -------------------------
 # Paths & simple disk cache
 # -------------------------
@@ -84,8 +104,12 @@ def get_team_id_by_full_name(team_full_name: str) -> Optional[int]:
 # -------------------------
 # Light roster fetch (preferred for populating UI)
 # -------------------------
+@_st_cache_data(persist="disk", ttl=60*60*12, max_entries=128)
 def get_commonteamroster_df(team_id: int, season: str | int,
                             *, timeout=60, retries=3, use_live=True, debug=False) -> pd.DataFrame:
+    """
+    Light roster fetch with CSV cache, Streamlit cache, retries, and cache fallback.
+    """
     season_norm = normalize_season(season)
     cache_key = f"commonteamroster_{team_id}_{season_norm}"
     if not use_live:
@@ -106,19 +130,27 @@ def get_commonteamroster_df(team_id: int, season: str | int,
         _save_cache_df(cache_key, df)
         return df
     except Exception as e:
-        # Fallback to cache if any
+        if debug:
+            print(f"[nba_api_utils] roster live fetch failed for team_id={team_id} season={season_norm}: {e}")
         cached = _load_cache_df(cache_key)
         if cached is not None:
             if debug:
-                print(f"[nba_api_utils] Using cached roster for {team_id} {season_norm} due to error: {e}")
+                print(f"[nba_api_utils] Using cached roster for {team_id} {season_norm}")
             return cached
-        raise
+        # final: return empty DF with expected columns so caller can degrade gracefully
+        return pd.DataFrame(columns=["PLAYER", "TEAM_ID", "SEASON"])
+
+
 
 # -------------------------
 # Heavier logs fetch (only when truly needed)
 # -------------------------
+@_st_cache_data(persist="disk", ttl=60*60*12, max_entries=32)
 def get_playergamelogs_df(season: str | int,
                           *, timeout=90, retries=3, use_live=True, debug=False) -> pd.DataFrame:
+    """
+    League-wide player game logs with CSV cache, Streamlit cache, and retries.
+    """
     season_norm = normalize_season(season)
     cache_key = f"playergamelogs_league_{season_norm}"
     if not use_live:
@@ -139,12 +171,16 @@ def get_playergamelogs_df(season: str | int,
         _save_cache_df(cache_key, df)
         return df
     except Exception as e:
+        if debug:
+            print(f"[nba_api_utils] logs live fetch failed for season={season_norm}: {e}")
         cached = _load_cache_df(cache_key)
         if cached is not None:
             if debug:
-                print(f"[nba_api_utils] Using cached logs for {season_norm} due to error: {e}")
+                print(f"[nba_api_utils] Using cached logs for {season_norm}")
             return cached
-        raise
+        # final: empty DF with expected shape
+        return pd.DataFrame(columns=["SEASON","TEAM_NAME","PLAYER_NAME","GAME_DATE","GAME_ID"])
+
 
 # -------------------------
 # Champion helper with cache

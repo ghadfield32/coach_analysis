@@ -17,42 +17,58 @@ def convert_season_format(year):
     return normalize_season(year)
 
 
-# --- UPDATED in trade_impact/overall_team_trade_impact.py ---
+
 def get_players_for_team(team_name, season="2023-24", *, use_live: bool = True, debug: bool = False):
     """
-    Fetch players for a given team using CommonTeamRoster (lighter than logs).
-    This keeps behavior consistent with the Streamlit helper.
+    Prefer CommonTeamRoster (light). If it fails and no roster cache exists,
+    derive roster from league PlayerGameLogs cache for the season.
     """
     from trade_impact.utils.nba_api_utils import (
         get_team_id_by_full_name,
         get_commonteamroster_df,
+        get_playergamelogs_df,
         normalize_season,
     )
 
     season_norm = normalize_season(season)
     team_id = get_team_id_by_full_name(team_name)
-
-    if debug:
-        print(f"[overall.get_players_for_team] team={team_name} id={team_id} season={season_norm} use_live={use_live}")
-
     if team_id is None:
         return []
 
+    # 1) Try roster endpoint (with fallback to cache inside)
     try:
         roster = get_commonteamroster_df(team_id, season_norm, use_live=use_live, debug=debug)
+        if "PLAYER" in roster.columns and roster["PLAYER"].notna().any():
+            return sorted(roster["PLAYER"].dropna().astype(str).unique().tolist())
+        if debug:
+            print(f"[get_players_for_team] No players in roster dataframe; will try logs fallback")
     except Exception as e:
         if debug:
-            print(f"[overall.get_players_for_team] Live fetch failed: {e}")
-        if use_live:
-            roster = get_commonteamroster_df(team_id, season_norm, use_live=False, debug=debug)
-        else:
-            raise
+            print(f"[get_players_for_team] roster fetch error: {e}")
 
-    if "PLAYER" not in roster.columns:
-        return []
+    # 2) Derive from season logs (works if logs cache was prewarmed or fetched once)
+    try:
+        logs = get_playergamelogs_df(season_norm, use_live=use_live, debug=debug)
+        if "TEAM_NAME" in logs.columns and "PLAYER_NAME" in logs.columns:
+            derived = logs.loc[logs["TEAM_NAME"] == team_name, "PLAYER_NAME"].dropna().astype(str).unique().tolist()
+            if derived:
+                return sorted(derived)
+    except Exception as e:
+        if debug:
+            print(f"[get_players_for_team] logs fallback error: {e}")
 
-    return sorted(roster["PLAYER"].dropna().astype(str).unique().tolist())
+    # 3) Final attempt: cache-only logs (don’t touch network)
+    try:
+        logs = get_playergamelogs_df(season_norm, use_live=False, debug=debug)
+        if "TEAM_NAME" in logs.columns and "PLAYER_NAME" in logs.columns:
+            derived = logs.loc[logs["TEAM_NAME"] == team_name, "PLAYER_NAME"].dropna().astype(str).unique().tolist()
+            if derived:
+                return sorted(derived)
+    except Exception as e:
+        if debug:
+            print(f"[get_players_for_team] cache-only logs fallback error: {e}")
 
+    return []
 
 
 
@@ -131,9 +147,47 @@ def trade_impact_simulator_app(selected_season="2023"):
     use_live_api = st.sidebar.checkbox("Use live NBA API", value=True,
         help="Uncheck to use cached data only. If live calls fail, cached data will be used when available.")
 
-    st.write("""
+    st.markdown("""
     ## About This App
-    (unchanged explanatory text)
+
+    This application allows you to analyze the impact of a trade between two NBA teams. It includes the following components:
+
+    ### 1. Trade Scenario Analysis:
+    - Ensure the trade satisfies NBA salary matching rules based on the provided player salaries.
+
+    ### 2. Percentile Counts:
+    - The count of top 1, 2, 3, 4, 5, 10, 25, 50 percentiles of the team's performance before and after the trade, compared to the last 'n' seasons selected in the champion season filter.
+
+    ### 3. Overall Trade Impact:
+    - **Pre-Trade Scenario**:
+        * **Data Collection:** Filter season data to include only games before the trade date.
+        * **Statistical Calculations:** Calculate total points and games played before the trade.
+        * **Averaging:** Calculate average points per game before the trade.
+        * **Percentile Ranking:** Rank teams based on pre-trade performance.
+
+    - **Post-Trade Scenario**:
+        * **Data Collection:** Filter season data for games on or after the trade date.
+        * **Player Averages:** Calculate average points for traded players post-trade.
+        * **Simulating Game Logs:** Simulate additional game logs using calculated player averages.
+        * **Statistical Calculations:** Combine simulated and actual post-trade data for calculations.
+        * **Averaging:** Calculate average points per game post-trade.
+        * **Percentile Ranking:** Rank teams based on post-trade performance.
+
+    - **No-Trade Scenario**:
+        * **Data Collection:** Use full season data assuming no trades occurred.
+        * **Statistical Calculations:** Calculate total points and games played for the entire season.
+        * **Averaging:** Calculate average points per game for the full season.
+        * **Percentile Ranking:** Rank teams based on full-season performance.
+
+    - **Final Comparison**:
+        * **Aggregation:** Organize pre-trade, post-trade, and no-trade results.
+        * **Metrics Compared:** Total points, games played, average points per game, and percentile rankings.
+
+    ### 4. Overpaid/Underpaid Player Analysis:
+    - Analyze whether the players involved in the trade are overpaid or underpaid based on predicted salaries.
+
+    ### 5. Player Compatibility Analysis:
+    - Calculate the compatibility between the players being traded based on their shooting areas.
     """)
 
     # Load predictions (unchanged)
